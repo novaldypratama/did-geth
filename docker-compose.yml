@@ -1,0 +1,238 @@
+x-geth-def: &geth-def
+  restart: "on-failure"
+  image: ethereum/client-go:${GETH_VERSION:-v1.12.0}
+  entrypoint:
+    - /bin/sh
+    - -c
+    - |
+
+      mkdir -p /.ethereum/keystore
+      echo $${ACCOUNT_PASSWORD} > /.ethereum/password.txt
+      if [ ! -f /.ethereum/keystore/UTC--* ]; then
+        geth account import --password /.ethereum/password.txt /config/keys/privatekey.txt
+      fi
+
+      geth \
+        --datadir=/.ethereum \
+        --networkid=1337 \
+        --identity=$${GETH_NODE_NAME} \
+        --http \
+        --http.addr=0.0.0.0 \
+        --http.port=8545 \
+        --http.corsdomain="*" \
+        --http.vhosts="*" \
+        --http.api=eth,net,web3,admin,personal,clique,miner,debug,txpool \
+        --ws \
+        --ws.addr=0.0.0.0 \
+        --ws.port=8546 \
+        --ws.origins="*" \
+        --ws.api=eth,net,web3,admin,personal,clique,miner,debug,txpool \
+        --mine \
+        --miner.threads=1 \
+        --miner.gasprice=0 \
+        --unlock=$${ACCOUNT_ADDRESS} \
+        --password=/.ethereum/password.txt \
+        --allow-insecure-unlock \
+        --metrics \
+        --metrics.addr=0.0.0.0 \
+        --metrics.port=9545 \
+        --verbosity=3 \
+        --syncmode=full \
+        --bootnodes=$${BOOTNODE_ENODE} \
+        $${EXTRA_ARGS}
+  environment:
+    - ACCOUNT_PASSWORD=password
+    - BOOTNODE_ENODE=enode://cf25da5e9f3e2fd0df7bb3670e4ef14358c5a4b24333a2e8193dc5dd66fd1e55ab840ec0dfdb4a3573d9ae98b673bfb61050605295d501f9fd836b7fea7db1b5@validator1:30303
+
+x-web3signerProxy-def: &web3signerProxy-def
+  image: consensys/web3signer:${WEB3SIGNER_VERSION:-latest}
+  command:
+    [
+      "--config-file=/opt/web3signer/config.yaml",
+      "eth1",
+      "--downstream-http-host=0.0.0.0",
+      "--downstream-http-port=8545",
+      "--downstream-http-proxy-host=rpcnode",
+      "--downstream-http-proxy-port=8545",
+      "--downstream-http-request-timeout=60000",
+    ]
+  ports:
+    - 8545
+
+services:
+  bootnode:
+    image: ethereum/client-go:${GETH_VERSION:-v1.12.0}
+    container_name: bootnode
+    command:
+      - --nodekeyhex=b0d264c23c695adc8d9f8249a53270a8b1365a7ee860babe5d031163e92a4727
+      - --nodiscover
+      - --ipcdisable
+      - --networkid=1337
+      - --verbosity=3
+      - --nat=extip:172.16.239.10
+    ports:
+      - 30301:30301/udp
+      - 30301:30301/tcp
+    networks:
+      ethnet:
+        ipv4_address: 172.16.239.10
+
+  validator1:
+    <<: *geth-def
+    container_name: validator1
+    hostname: validator1
+    environment:
+      - ACCOUNT_PASSWORD=password
+      - ACCOUNT_ADDRESS=0xed9d02e382b34818e88b88a309c7fe71e65f419d
+      - GETH_NODE_NAME=validator1
+      - BOOTNODE_ENODE=enode://cf25da5e9f3e2fd0df7bb3670e4ef14358c5a4b24333a2e8193dc5dd66fd1e55ab840ec0dfdb4a3573d9ae98b673bfb61050605295d501f9fd836b7fea7db1b5@bootnode:30301
+      - EXTRA_ARGS=--nodiscover --nat=extip:172.16.239.11
+    volumes:
+      - ./network/config/geth:/config
+      - ./network/logs/geth:/var/log/geth
+      - validator1-data:/.ethereum
+    ports:
+      - 21001:8545/tcp
+      - 30303:30303/tcp
+      - 30303:30303/udp
+      - 9545:9545/tcp
+    depends_on:
+      - bootnode
+    networks:
+      ethnet:
+        ipv4_address: 172.16.239.11
+
+  validator2:
+    <<: *geth-def
+    container_name: validator2
+    hostname: validator2
+    environment:
+      - ACCOUNT_PASSWORD=password
+      - ACCOUNT_ADDRESS=0xb30f304642de3fee4365ed5cd06ea2e69d3fd0ca
+      - GETH_NODE_NAME=validator2
+      - BOOTNODE_ENODE=enode://cf25da5e9f3e2fd0df7bb3670e4ef14358c5a4b24333a2e8193dc5dd66fd1e55ab840ec0dfdb4a3573d9ae98b673bfb61050605295d501f9fd836b7fea7db1b5@bootnode:30301
+      - EXTRA_ARGS=--nodiscover --nat=extip:172.16.239.12
+    volumes:
+      - ./network/config/geth:/config
+      - ./network/logs/geth:/var/log/geth
+      - validator2-data:/.ethereum
+    ports:
+      - 21002:8545/tcp
+      - 30304:30303/tcp
+      - 30304:30303/udp
+      - 9546:9545/tcp
+    depends_on:
+      - bootnode
+      - validator1
+    networks:
+      ethnet:
+        ipv4_address: 172.16.239.12
+
+  validator3:
+    <<: *geth-def
+    container_name: validator3
+    hostname: validator3
+    environment:
+      - ACCOUNT_PASSWORD=password
+      - ACCOUNT_ADDRESS=0x0886328869e4e1f401e1052a5f4aae8b45f42610
+      - GETH_NODE_NAME=validator3
+      - BOOTNODE_ENODE=enode://cf25da5e9f3e2fd0df7bb3670e4ef14358c5a4b24333a2e8193dc5dd66fd1e55ab840ec0dfdb4a3573d9ae98b673bfb61050605295d501f9fd836b7fea7db1b5@bootnode:30301
+      - EXTRA_ARGS=--nodiscover --nat=extip:172.16.239.13
+    volumes:
+      - ./network/config/geth:/config
+      - ./network/logs/geth:/var/log/geth
+      - validator2-data:/.ethereum
+    ports:
+      - 21002:8545/tcp
+      - 30304:30303/tcp
+      - 30304:30303/udp
+      - 9546:9545/tcp
+    depends_on:
+      - bootnode
+      - validator1
+    networks:
+      ethnet:
+        ipv4_address: 172.16.239.13
+
+  validator4:
+    <<: *geth-def
+    container_name: validator4
+    hostname: validator4
+    environment:
+      - ACCOUNT_PASSWORD=password
+      - ACCOUNT_ADDRESS=0xf48de4a0c2939e62891f3c6aca68982975477e45
+      - GETH_NODE_NAME=validator4
+      - BOOTNODE_ENODE=enode://cf25da5e9f3e2fd0df7bb3670e4ef14358c5a4b24333a2e8193dc5dd66fd1e55ab840ec0dfdb4a3573d9ae98b673bfb61050605295d501f9fd836b7fea7db1b5@bootnode:30301
+      - EXTRA_ARGS=--nodiscover --nat=extip:172.16.239.14
+    volumes:
+      - ./network/config/geth:/config
+      - ./network/logs/geth:/var/log/geth
+      - validator2-data:/.ethereum
+    ports:
+      - 21002:8545/tcp
+      - 30304:30303/tcp
+      - 30304:30303/udp
+      - 9546:9545/tcp
+    depends_on:
+      - bootnode
+      - validator1
+    networks:
+      ethnet:
+        ipv4_address: 172.16.239.14
+
+  rpcnode:
+    <<: *geth-def
+    container_name: rpcnode
+    hostname: rpcnode
+    environment:
+      - ACCOUNT_PASSWORD=password
+      - ACCOUNT_ADDRESS=0xc9c913c8c3c1cd416d80a0abf475db2062f161f6
+      - GETH_NODE_NAME=rpcnode
+      - BOOTNODE_ENODE=enode://cf25da5e9f3e2fd0df7bb3670e4ef14358c5a4b24333a2e8193dc5dd66fd1e55ab840ec0dfdb4a3573d9ae98b673bfb61050605295d501f9fd836b7fea7db1b5@bootnode:30301
+      - EXTRA_ARGS=--nodiscover --nat=extip:172.16.239.15 --rpc.allow-unprotected-txs
+    volumes:
+      - ./network/config/geth:/config
+      - ./network/logs/geth:/var/log/geth
+      - rpcnode-data:/.ethereum
+    ports:
+      - 8545:8545/tcp
+      - 8546:8546/tcp
+      - 30305:30303/tcp
+      - 30305:30303/udp
+      - 9547:9545/tcp
+    depends_on:
+      - bootnode
+      - validator1
+    networks:
+      ethnet:
+        ipv4_address: 172.16.239.15
+
+  web3signerProxy:
+    <<: *web3signerProxy-def
+    volumes:
+      - ./network/config/web3signer/config.yaml:/opt/web3signer/config.yaml
+      - ./network/config/web3signer/keys:/opt/web3signer/keys
+      - ./network/config/web3signer/data:/opt/web3signer/data
+    depends_on:
+      - validator1
+      - rpcnode
+    ports:
+      - 18545:8545/tcp
+    networks:
+      ethnet:
+        ipv4_address: 172.16.239.40
+
+volumes:
+  validator1-data:
+  validator2-data:
+  validator3-data:
+  validator4-data:
+  rpcnode-data:
+
+networks:
+  ethnet:
+    name: ethnet
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.239.0/24
