@@ -246,9 +246,9 @@ x-geth-def: &geth-def
         echo "Node Name:       $${GETH_NODE_NAME}"
         echo "Node Type:       $${NODE_TYPE:-validator}"
         echo "Account:         $${ACCOUNT_ADDRESS}"
-        echo "Network ID:      (from TOML config.toml)"
-        echo "Data Directory:  (from TOML config.toml)"
-        echo "HTTP/WS Ports:   (from TOML config.toml)"
+        echo "Network ID:      (from TOML config file: "config.toml")"
+        echo "Data Directory:  (from TOML config file: "config.toml")"
+        echo "HTTP/WS Ports:   (from TOML config file: "config.toml")"
         echo "Mining:          $${MINING_ENABLED:-true}"
         echo "TOML Config:     /config/config.toml"
         echo "Genesis:         /config/genesis.json"
@@ -604,6 +604,7 @@ services:
     volumes:
       - rpcnode-data:/opt/geth/data
       - ./network/config/geth/:/config
+      - ./network/config/geth/bootnode:/config/keys
       - ./network/config/nodes/rpcnode:/opt/geth/data/keystore
       - ./network/logs/geth:/var/log/geth
     ports:
