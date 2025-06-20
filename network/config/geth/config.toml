@@ -35,4 +35,3 @@ WSModules = ["eth", "net", "web3", "clique", "miner", "debug", "txpool"]
 ListenAddr = ":30303"
 # Keep discovery enabled
 NoDiscovery = false
-# static-nodes.json in DataDir will be loaded automatically if present
