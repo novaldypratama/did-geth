@@ -90,4 +90,11 @@ interface IRoleControl {
      * Reverts if the account does not have either role.
      */
     function isTrusteeOrIssuer(address identity) external view;
+
+    /**
+     * @dev Function to check that identity has either TRUSTEE or ISSUER or HOLDER role.
+     * Reverts if the account does not have either role.
+     */
+    function isTrusteeOrIssuerOrHolder(address identity) external view;
+
 }

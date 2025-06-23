@@ -132,4 +132,10 @@ contract RoleControl is IRoleControl {
             revert Unauthorized(identity);
         }
     }
+
+    /// @inheritdoc IRoleControl
+    function isTrusteeOrIssuerOrHolder(address identity) public view virtual {
+        ROLES role = _roles[identity];
+        if (role != ROLES.ISSUER && role != ROLES.TRUSTEE && role != ROLES.HOLDER) revert Unauthorized(identity);
+    }
 }
