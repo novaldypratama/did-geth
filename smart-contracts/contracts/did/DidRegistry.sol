@@ -3,21 +3,14 @@ pragma solidity ^0.8.20;
 
 import { IRoleControl } from "../auth/IRoleControl.sol";
 import { Unauthorized } from "../auth/AuthErrors.sol";
-import { 
-    DidAlreadyExist, 
-    DidHasBeenDeactivated, 
-    DidNotFound, 
-    NotIdentityOwner, 
-    InvalidDidDocument, 
-    DidHashMismatch 
-} from "./DidErrors.sol";
-import { DidRecord, DidMetadata, DidStatus, MultiHash } from "./DidTypeNew.sol";
+import { DidAlreadyExist, DidHasBeenDeactivated, DidNotFound, NotIdentityOwner, InvalidDidDocument, DidHashMismatch } from "./DidErrors.sol";
+import { DidRecord, DidMetadata, DidStatus } from "./DidTypeNew.sol";
 import { IDidRegistry } from "./IDidRegistry.sol";
 
 /**
  * @title DidRegistry
  * @dev Implementation of DID operations following W3C DID Core specification
- * with optimized storage and gas efficiency using MultiHash for IPFS/IPLD integration
+ * with optimized storage and gas efficiency
  */
 contract DidRegistry is IDidRegistry {
     // Role control contract for authorization
@@ -48,39 +41,16 @@ contract DidRegistry is IDidRegistry {
      * @dev Ensures the DID is active
      */
     modifier _didIsActive(address identity) {
-        if (_dids[identity].metadata.deactivated) revert DidHasBeenDeactivated(identity, "access");
-        _;
-    }
-
-    /**
-     * @dev Ensures caller has Trustee role
-     */
-    modifier _senderIsTrustee() {
-        try _roleControl.isTrustee(msg.sender) {
-            // Successfully validated as Trustee
-        } catch (bytes memory) {
-            revert Unauthorized(msg.sender);
-        }
-        _;
-    }
-
-    /**
-     * @dev Ensures caller has Issuer role
-     */
-    modifier _senderIsIssuer() {
-        try _roleControl.isIssuer(msg.sender) {
-            // Successfully validated as Issuer
-        } catch (bytes memory) {
-            revert Unauthorized(msg.sender);
-        }
+        if (_dids[identity].metadata.status != DidStatus.ACTIVE) 
+            revert DidHasBeenDeactivated(identity, "access");
         _;
     }
 
     /**
      * @dev Ensures caller is either Trustee or Issuer
      */
-    modifier _senderIsTrusteeOrIssuer() {
-        try _roleControl.isTrusteeOrIssuer(msg.sender) {
+    modifier _senderIsTrusteeOrIssuerOrHolder() {
+        try _roleControl.isTrusteeOrIssuerOrHolder(msg.sender) {
             // Successfully validated as either Trustee or Issuer
         } catch (bytes memory) {
             revert Unauthorized(msg.sender);
@@ -124,14 +94,8 @@ contract DidRegistry is IDidRegistry {
     // PUBLIC FUNCTIONS - IMPLEMENTATION OF INTERFACE
 
     /// @inheritdoc IDidRegistry
-    function createDid(
-        address identity, 
-        uint8 hashFunction,
-        uint8 digestLength,
-        bytes32 digest,
-        bytes calldata docHash
-    ) public override {
-        _createDid(identity, msg.sender, hashFunction, digestLength, digest, docHash);
+    function createDid(address identity, bytes32 docHash) public override {
+        _createDid(identity, msg.sender, docHash);
     }
 
     /// @inheritdoc IDidRegistry
@@ -140,42 +104,23 @@ contract DidRegistry is IDidRegistry {
         uint8 sigV,
         bytes32 sigR,
         bytes32 sigS,
-        uint8 hashFunction,
-        uint8 digestLength,
-        bytes32 digest,
-        bytes calldata docHash
+        bytes32 docHash
     ) public override {
         // Recreate the signed message hash
         bytes32 hash = keccak256(
-            abi.encodePacked(
-                bytes1(0x19), 
-                bytes1(0), 
-                address(this), 
-                identity, 
-                "createDid", 
-                hashFunction, 
-                digestLength, 
-                digest, 
-                docHash
-            )
+            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "createDid", docHash)
         );
-        
+
         // Recover the signer from signature
         address signer = ecrecover(hash, sigV, sigR, sigS);
-        
+
         // Call internal function with recovered signer
-        _createDid(identity, signer, hashFunction, digestLength, digest, docHash);
+        _createDid(identity, signer, docHash);
     }
 
     /// @inheritdoc IDidRegistry
-    function updateDid(
-        address identity, 
-        uint8 hashFunction,
-        uint8 digestLength,
-        bytes32 digest,
-        bytes calldata docHash
-    ) public override {
-        _updateDid(identity, msg.sender, hashFunction, digestLength, digest, docHash);
+    function updateDid(address identity, bytes32 docHash) public override {
+        _updateDid(identity, msg.sender, docHash);
     }
 
     /// @inheritdoc IDidRegistry
@@ -184,31 +129,18 @@ contract DidRegistry is IDidRegistry {
         uint8 sigV,
         bytes32 sigR,
         bytes32 sigS,
-        uint8 hashFunction,
-        uint8 digestLength,
-        bytes32 digest,
-        bytes calldata docHash
+        bytes32 docHash
     ) public override {
         // Recreate the signed message hash
         bytes32 hash = keccak256(
-            abi.encodePacked(
-                bytes1(0x19), 
-                bytes1(0), 
-                address(this), 
-                identity, 
-                "updateDid", 
-                hashFunction, 
-                digestLength, 
-                digest, 
-                docHash
-            )
+            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "updateDid", docHash)
         );
-        
+
         // Recover the signer from signature
         address signer = ecrecover(hash, sigV, sigR, sigS);
-        
+
         // Call internal function with recovered signer
-        _updateDid(identity, signer, hashFunction, digestLength, digest, docHash);
+        _updateDid(identity, signer, docHash);
     }
 
     /// @inheritdoc IDidRegistry
@@ -227,10 +159,10 @@ contract DidRegistry is IDidRegistry {
         bytes32 hash = keccak256(
             abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "deactivateDid")
         );
-        
+
         // Recover the signer from signature
         address signer = ecrecover(hash, sigV, sigR, sigS);
-        
+
         // Call internal function with recovered signer
         _deactivateDid(identity, signer);
     }
@@ -246,31 +178,14 @@ contract DidRegistry is IDidRegistry {
     }
 
     /// @inheritdoc IDidRegistry
-    function isDidActive(address identity) public view override returns (bool active) {
-        if (!didExists(identity)) return false;
-        return !_dids[identity].metadata.deactivated;
-    }
-
-    /// @inheritdoc IDidRegistry
     function getDidStatus(address identity) public view override returns (DidStatus status) {
         if (!didExists(identity)) return DidStatus.NONE;
-        return _dids[identity].metadata.deactivated ? DidStatus.DEACTIVATED : DidStatus.ACTIVE;
+        return _dids[identity].metadata.status;
     }
 
     /// @inheritdoc IDidRegistry
-    function validateDocumentHash(address identity, bytes calldata hash) public view override _didExist(identity) returns (bool valid) {
-        bytes memory storedHash = _dids[identity].docHash;
-        return keccak256(abi.encodePacked(storedHash)) == keccak256(abi.encodePacked(hash));
-    }
-
-    /// @inheritdoc IDidRegistry
-    function getDocumentMultiHash(address identity) public view override _didExist(identity) returns (MultiHash memory multiHash) {
-        return _dids[identity].document;
-    }
-
-    /// @inheritdoc IDidRegistry
-    function getDocumentVersion(address identity) public view override _didExist(identity) returns (uint256 versionId) {
-        return _dids[identity].metadata.versionId;
+    function validateDocumentHash(address identity, bytes32 hash) public view override _didExist(identity) returns (bool valid) {
+        return _dids[identity].docHash == hash;
     }
 
     // INTERNAL FUNCTIONS
@@ -279,63 +194,45 @@ contract DidRegistry is IDidRegistry {
      * @dev Internal function to create a new DID
      * @param identity Address of the DID
      * @param actor Address of the actor (sender or recovered signer)
-     * @param hashFunction The hash function code used in the MultiHash
-     * @param digestLength The length of the digest
-     * @param digest The document digest in MultiHash format
-     * @param docHash Hash of the DID document for verification
+     * @param docHash Hash of the DID document
      */
     function _createDid(
         address identity,
         address actor,
-        uint8 hashFunction,
-        uint8 digestLength,
-        bytes32 digest,
-        bytes calldata docHash
-    ) 
-        internal 
-        _didNotExist(identity) 
-        _identityOwner(identity, actor) 
-        _senderIsTrusteeOrIssuer
+        bytes32 docHash
+    )
+        internal
+        _didNotExist(identity)
+        _identityOwner(identity, actor)
+        _senderIsTrusteeOrIssuerOrHolder
     {
         // Validate inputs first
-        if (digest == bytes32(0)) revert InvalidDidDocument("Empty document digest not allowed");
-        if (docHash.length == 0) revert InvalidDidDocument("Empty document hash not allowed");
-        
-        // Update MultiHash document structure
-        _dids[identity].document.hashFunction = hashFunction;
-        _dids[identity].document.digestLength = digestLength;
-        _dids[identity].document.digest = digest;
-        
-        // Set document hash
+        if (docHash == bytes32(0)) revert InvalidDidDocument("Empty document hash not allowed");
+
+        // Update state variables - packing optimization occurs here
         _dids[identity].docHash = docHash;
         
-        // Optimize storage packing by setting fields in order
+        // Set metadata fields in the most efficient order for storage packing
         _dids[identity].metadata.owner = identity;
-        _dids[identity].metadata.deactivated = false;
-        _dids[identity].metadata.created = block.timestamp;
-        _dids[identity].metadata.updated = block.timestamp;
-        _dids[identity].metadata.versionId = block.number;
+        _dids[identity].metadata.created = uint64(block.timestamp);
+        _dids[identity].metadata.updated = uint64(block.timestamp);
+        _dids[identity].metadata.versionId = uint32(block.number);
+        _dids[identity].metadata.status = DidStatus.ACTIVE;
 
         // Emit event
-        emit DIDCreated(identity, docHash, block.number);
+        emit DIDCreated(identity, docHash);
     }
 
     /**
      * @dev Internal function to update a DID
      * @param identity Address of the DID
      * @param actor Address of the actor (sender or recovered signer)
-     * @param hashFunction The hash function code used in the MultiHash
-     * @param digestLength The length of the digest
-     * @param digest The document digest in MultiHash format
      * @param docHash Updated hash of the DID document
      */
     function _updateDid(
         address identity,
         address actor,
-        uint8 hashFunction,
-        uint8 digestLength,
-        bytes32 digest,
-        bytes calldata docHash
+        bytes32 docHash
     )
         internal
         _didExist(identity)
@@ -344,23 +241,15 @@ contract DidRegistry is IDidRegistry {
         _senderIsIdentityOwnerOrTrustee(identity)
     {
         // Validate inputs first
-        if (digest == bytes32(0)) revert InvalidDidDocument("Empty document digest not allowed");
-        if (docHash.length == 0) revert InvalidDidDocument("Empty document hash not allowed");
-        
-        // Update MultiHash document structure
-        _dids[identity].document.hashFunction = hashFunction;
-        _dids[identity].document.digestLength = digestLength;
-        _dids[identity].document.digest = digest;
-        
-        // Set document hash
+        if (docHash == bytes32(0)) revert InvalidDidDocument("Empty document hash not allowed");
+
+        // Update state variables
         _dids[identity].docHash = docHash;
-        
-        // Update metadata
-        _dids[identity].metadata.updated = block.timestamp;
-        _dids[identity].metadata.versionId = block.number;
+        _dids[identity].metadata.updated = uint64(block.timestamp);
+        _dids[identity].metadata.versionId = uint32(block.number);
 
         // Emit event with new version ID for tracking
-        emit DIDUpdated(identity, docHash, block.number);
+        emit DIDUpdated(identity, docHash, _dids[identity].metadata.versionId);
     }
 
     /**
@@ -379,11 +268,11 @@ contract DidRegistry is IDidRegistry {
         _senderIsIdentityOwnerOrTrustee(identity)
     {
         // Update state variables
-        _dids[identity].metadata.deactivated = true;
-        _dids[identity].metadata.updated = block.timestamp;
-        _dids[identity].metadata.versionId = block.number;
+        _dids[identity].metadata.status = DidStatus.DEACTIVATED;
+        _dids[identity].metadata.updated = uint64(block.timestamp);
+        _dids[identity].metadata.versionId = uint32(block.number);
 
         // Emit event
-        emit DIDDeactivated(identity, block.number);
+        emit DIDDeactivated(identity);
     }
 }
