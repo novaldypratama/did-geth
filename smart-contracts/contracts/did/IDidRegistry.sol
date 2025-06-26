@@ -110,6 +110,13 @@ interface IDidRegistry {
     function didExists(address identity) external view returns (bool exists);
 
     /**
+     * @dev Checks if a DID is active
+     * @param identity Address of the DID to check
+     * @return isActive True if the DID is active
+     */
+    function didActive(address identity) external view returns (bool isActive);
+
+    /**
      * @dev Gets the current status of a DID
      * @param identity Address of the DID
      * @return status Current status of the DID

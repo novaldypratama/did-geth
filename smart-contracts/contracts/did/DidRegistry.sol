@@ -178,6 +178,11 @@ contract DidRegistry is IDidRegistry {
     }
 
     /// @inheritdoc IDidRegistry
+    function didActive(address identity) public view override _didIsActive(identity) returns (bool isActive) {
+        return _dids[identity].metadata.status == DidStatus.ACTIVE;
+    }
+
+    /// @inheritdoc IDidRegistry
     function getDidStatus(address identity) public view override returns (DidStatus status) {
         if (!didExists(identity)) return DidStatus.NONE;
         return _dids[identity].metadata.status;
