@@ -73,7 +73,7 @@ error IssuerNotAuthorized(address identity, string reason);
 /**
  * @notice Error thrown when an issuer's registration has been deactivated
  * @param identity The address of the DID that has been deactivated
- * @param reason The reason for the deactivation (e.g., policy violation, inactivity, etc.)
+ * @param reason The reason for the deactivated issuer
  */
 error IssuerHasBeenDeactivated(address identity, string reason);
 
@@ -92,8 +92,8 @@ error HolderNotAuthorized(address identity, string reason);
 
 /**
  * @notice Error thrown when attempting to issue a credential to an invalid holder
- * @param identity The address of the DID that is not a valid holder
- * @param reason The reason why the holder is invalid (e.g., not registered, deactivated, etc.)
+ * @param identity The address of Holder DID that is invalid 
+ * @param reason The reason for invalid credential holder
  */
 error InvalidCredentialHolder(address identity, string reason);
 

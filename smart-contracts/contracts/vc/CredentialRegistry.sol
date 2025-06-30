@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import { IRoleControl } from "../contracts/auth/IRoleControl.sol";
-import { Unauthorized } from "../contracts/auth/AuthErrors.sol";
+import { IRoleControl } from "../auth/IRoleControl.sol";
+import { Unauthorized } from "../auth/AuthErrors.sol";
 
-import { IDidRegistry } from "../contracts/did/IDidRegistry.sol";
+import { DidHashMismatch, IncorrectDidFormat, IdenticalDidAddress } from "../did/DidErrors.sol";
+import { IDidRegistry } from "../did/IDidRegistry.sol";
+
 import { ICredentialRegistry } from "./ICredentialRegistry.sol";
-import { CredentialRecord, CredentialStatus, CredentialMetadata } from "./CredentialType.sol";
+import { CredentialRecord, CredentialMetadata, CredentialStatus } from "./CredentialType.sol";
 
 import {
     CredentialAlreadyExists,
@@ -28,29 +30,37 @@ import {
 
 contract CredentialRegistry is ICredentialRegistry {
     
-    /**
-    * @dev Reference to the role control contract for access management
-    * @notice This contract uses role-based access control to manage who can issue, update, and revoke credentials.
-    * @notice Only authorized roles (Trustees or Issuers) can perform operations on credentials.
-    */
+    /// @dev Reference to the role control contract for access management
     IRoleControl private immutable _roleControl;
 
     /**
     * @dev Reference to the DID registry for managing issuer and holder DIDs
-    * @notice This contract relies on the DID registry to validate issuers and holders.
-    * @notice It ensures that only registered and active DIDs can issue or hold credentials.
-    * @notice The DID registry is used to resolve DIDs and check their status.
-    * @notice This contract does not manage DIDs directly, but interacts with the DID registry
-    * @notice to ensure that issuers and holders are valid.
-    * @notice The DID registry is expected to implement the IDidRegistry interface.
-    * @notice This contract does not create or update DIDs, it only validates them.
     */
     IDidRegistry private immutable _didRegistry;
 
     mapping(bytes32 credentialId => CredentialRecord credentialRecord) private _credentials;
     
+    /**
+    * @dev Mappings to track issuer and holder relationships for credentials
+    */
     mapping(bytes32 credentialId => address issuer) public _issuerOf;
     mapping(bytes32 credentialId => address holder) public _holderOf;
+
+    /**
+    * @dev DID-based relationship mappings (for DID-based queries)
+    */
+    mapping(bytes32 credentialId => bytes32 issuerDid) public _issuerDidOf;
+    mapping(bytes32 credentialId => bytes32 holderDid) public _holderDidOf;
+
+    /**
+    * @dev Reverse lookup indexes for efficient querying
+    * @notice These enable O(1) access to credential lists by address or DID
+    */
+    mapping(address issuer => bytes32[] credentialId) private _issuerCredentials;
+    mapping(address holder => bytes32[] credentialId) private _holderCredentials;
+
+    mapping(bytes32 issuerDid => bytes32[] credentialId) private _issuerDidCreds;
+    mapping(bytes32 holderDid => bytes32[] credentialId) private _holderDidCreds;
 
     // ========================================================================
     // MODIFIERS FOR ACCESS CONTROL AND VALIDATION
@@ -62,21 +72,11 @@ contract CredentialRegistry is ICredentialRegistry {
     modifier _onlyAuthorizedRole() {
         _roleControl.isTrusteeOrIssuer(msg.sender);
         _;
+        // if (!_roleControl.isTrusteeOrIssuer(msg.sender)) {
+        //     revert Unauthorized(msg.sender);
+        // }
+        // _;
     }
-
-    // modifier _issuerExist(bytes32 issuerDid) {
-    //     if (issuerDid == bytes32(0)) {
-    //         revert IssuerNotFound(issuerDid);
-    //     }
-    //     _;
-    // }
-
-    // modifier _holderExist(bytes32 holderDid) {
-    //     if (holderDid == bytes32(0)) {
-    //         revert HolderNotFound(holderDid);
-    //     }
-    //     _;
-    // }
 
     /**
      * @dev Ensures credential exists
@@ -166,6 +166,44 @@ contract CredentialRegistry is ICredentialRegistry {
     }
 
     // /**
+    // * @dev Minimal but critical on-chain DID validation
+    // * Purpose: Prevent attacks and ensure data integrity
+    // */
+    // modifier _validateDidParameters(bytes32 issuerDid, bytes32 holderDid) {
+    //     // 1. Prevent zero/empty DIDs
+    //     if (issuerDid == bytes32(0)) revert IncorrectDidFormat(issuerDid, "Issuer DID cannot be empty");
+    //     if (holderDid == bytes32(0)) revert IncorrectDidFormat(holderDid, "Holder DID cannot be empty");
+        
+    //     // 2. Prevent identical issuer/holder (self-issuance detection)
+    //     if (issuerDid == holderDid) revert IdenticalDidAddress(issuerDid, holderDid, "Issuer and holder cannot be identical");
+    //     _;
+    // }
+
+    // /**
+    // * @dev Cross-reference DID hashes with actual addresses
+    // * Purpose: Ensure DID consistency with identity addresses
+    // */
+    // modifier _validateDidConsistency(
+    //     address identity,
+    //     address actor, 
+    //     bytes32 issuerDid, 
+    //     bytes32 holderDid
+    // ) {
+    //     // Verify issuer DID corresponds to actor address
+    //     bytes32 expectedIssuerDidHash = keccak256(abi.encodePacked("did:ethr:", actor));
+    //     if (issuerDid != expectedIssuerDidHash) {
+    //         revert DidHashMismatch(expectedIssuerDidHash, issuerDid, "Issuer DID does not match actor address");
+    //     }
+        
+    //     // Verify holder DID corresponds to identity address  
+    //     bytes32 expectedHolderDidHash = keccak256(abi.encodePacked("did:ethr:", identity));
+    //     if (holderDid != expectedHolderDidHash) {
+    //         revert DidHashMismatch(expectedHolderDidHash, holderDid, "Holder DID does not match identity address");
+    //     }
+    //     _;
+    // }
+
+    // /**
     //  * @dev Ensures caller is authorized to modify credential (issuer or has role)
     //  */
     // modifier _authorizedForCredential(bytes32 credentialId) {
@@ -220,6 +258,39 @@ contract CredentialRegistry is ICredentialRegistry {
         _issueCredential(identity, msg.sender, credentialId, issuerDid, holderDid, credentialCid);
     }
 
+    /// @inheritdoc ICredentialRegistry
+    function issueCredentialSigned(
+        address identity,
+        uint8 sigV,
+        bytes32 sigR,
+        bytes32 sigS,
+        bytes32 credentialId,
+        bytes32 issuerDid,
+        bytes32 holderDid,
+        string calldata credentialCid
+    ) public virtual {
+        bytes32 hash = keccak256(
+            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "issueCredential", credentialId, issuerDid, holderDid, credentialCid)
+        );
+        // Verify signature
+        address actor = ecrecover(hash, sigV, sigR, sigS);
+        if (actor == address(0)) {
+            revert Unauthorized(actor);
+        }
+
+        // Call internal function to issue credential
+        _issueCredential(identity, actor, credentialId, issuerDid, holderDid, credentialCid);
+    }
+
+    function resolveCredential(
+        bytes32 credentialId
+    ) public view virtual _credentialExists(credentialId) returns (CredentialRecord memory credentialRecord) {
+        return _credentials[credentialId];
+    }
+
+    /**
+    * @dev Internal credential issuance with optimized validation and storage
+    */
     function _issueCredential(
         address identity,
         address actor,
@@ -234,6 +305,10 @@ contract CredentialRegistry is ICredentialRegistry {
         _validHolder(identity)
         _uniqueCredentialId(credentialId)
     {
+        // DID validation
+        _validateDidParameters(issuerDid, holderDid, actor, identity);
+
+        // Store credential record (PRIMARY STORAGE BY CREDENTIAL ID)
         _credentials[credentialId] = CredentialRecord({
             credentialHash: credentialId,
             metadata: CredentialMetadata({
@@ -247,6 +322,16 @@ contract CredentialRegistry is ICredentialRegistry {
         _issuerOf[credentialId] = actor;
         _holderOf[credentialId] = identity;
 
+        _issuerDidOf[credentialId] = issuerDid;
+        _holderDidOf[credentialId] = holderDid;
+
+        // Update reverse lookup indexes for efficient querying
+        _issuerCredentials[actor].push(credentialId);
+        _holderCredentials[identity].push(credentialId);
+
+        _issuerDidCreds[issuerDid].push(credentialId);
+        _holderDidCreds[holderDid].push(credentialId);
+        
         // Emit event for credential issuance
         emit CredentialIssued(
             credentialId,
@@ -257,4 +342,34 @@ contract CredentialRegistry is ICredentialRegistry {
             credentialCid
         );
     }
+
+    /**
+    * @dev Validates DID parameters for credential issuance
+    */
+    function _validateDidParameters(
+        bytes32 issuerDid,
+        bytes32 holderDid,
+        address actor,
+        address identity
+    ) internal pure {
+        // Prevent zero/empty DIDs
+        if (issuerDid == bytes32(0)) revert IncorrectDidFormat(issuerDid, "Issuer DID cannot be empty");
+        if (holderDid == bytes32(0)) revert IncorrectDidFormat(holderDid, "Holder DID cannot be empty");
+        
+        // Prevent identical issuer/holder (self-issuance detection)
+        if (issuerDid == holderDid) revert IdenticalDidAddress(issuerDid, holderDid, "Issuer and holder cannot be identical");
+
+        // Verify issuer DID corresponds to actor address
+        bytes32 expectedIssuerDidHash = keccak256(abi.encodePacked("did:ethr:", actor));
+        if (issuerDid != expectedIssuerDidHash) {
+            revert DidHashMismatch(expectedIssuerDidHash, issuerDid, "Issuer DID does not match actor address");
+        }
+        
+        // Verify holder DID corresponds to identity address  
+        bytes32 expectedHolderDidHash = keccak256(abi.encodePacked("did:ethr:", identity));
+        if (holderDid != expectedHolderDidHash) {
+            revert DidHashMismatch(expectedHolderDidHash, holderDid, "Holder DID does not match identity address");
+        }
+    }
+
 }

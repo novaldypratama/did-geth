@@ -49,9 +49,9 @@ struct CredentialRecord {
 struct CredentialMetadata {
     // bytes32 issuer;          // 32 bytes - optimized from generic bytes
     // bytes32 holder;          // 32 bytes - optimized from generic bytes
-    uint64 issuanceDate;     // 8 bytes - reduced from uint256 since Unix timestamps fit in uint64
-    uint64 expirationDate;   // 8 bytes - reduced from uint256 for the same reason
-    CredentialStatus status; // 1 byte - added for extensibility while optimizing packing
+    uint64 issuanceDate;        // 8 bytes - reduced from uint256 since Unix timestamps fit in uint64
+    uint64 expirationDate;      // 8 bytes - reduced from uint256 for the same reason
+    CredentialStatus status;    // 1 byte - added for extensibility while optimizing packing
 }
 
 /**

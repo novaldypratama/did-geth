@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import { IRoleControl } from "../auth/IRoleControl.sol";
 import { Unauthorized } from "../auth/AuthErrors.sol";
-import { DidAlreadyExist, DidHasBeenDeactivated, DidNotFound, NotIdentityOwner, InvalidDidDocument, DidHashMismatch } from "./DidErrors.sol";
+import { DidAlreadyExist, DidHasBeenDeactivated, DidNotFound, NotIdentityOwner, InvalidDidDocument } from "./DidErrors.sol";
 import { DidRecord, DidMetadata, DidStatus } from "./DidTypeNew.sol";
 import { IDidRegistry } from "./IDidRegistry.sol";
 
@@ -168,7 +168,7 @@ contract DidRegistry is IDidRegistry {
     }
 
     /// @inheritdoc IDidRegistry
-    function resolveDid(address identity) public view override _didExist(identity) returns (DidRecord memory didRecord) {
+    function resolveDid(address identity) public view override _didExist(identity) _didIsActive(identity) returns (DidRecord memory didRecord) {
         return _dids[identity];
     }
 

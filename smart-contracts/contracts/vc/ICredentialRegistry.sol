@@ -122,9 +122,9 @@ interface ICredentialRegistry {
     //     address indexed deactivatedBy
     // );
 
-    // ========================================================================
-    // CORE CREDENTIAL MANAGEMENT FUNCTIONS
-    // ========================================================================
+    // // ========================================================================
+    // // CORE CREDENTIAL MANAGEMENT FUNCTIONS
+    // // ========================================================================
 
     /**
      * @dev Issues a new Verifiable Credential
@@ -139,8 +139,6 @@ interface ICredentialRegistry {
      * 
      * @param identity Ethereum address of the holder
      * @param credentialId keccak256 hash of the credential content
-     * @param issuerDid keccak256 hash of the issuer's DID
-     * @param holderDid keccak256 hash of the holder's DID
      * @param credentialCid Content Identifier (CID) pointing to the full credential data
      * 
      * Emits: CredentialIssued event
@@ -161,35 +159,54 @@ interface ICredentialRegistry {
         string calldata credentialCid
     ) external;
 
-    // /**
-    //  * @dev Issues a Verifiable Credential with off-chain signature (meta-transaction)
-    //  * 
-    //  * This function enables gasless credential issuance where the issuer signs
-    //  * the transaction off-chain and another party submits it on their behalf.
-    //  * 
-    //  * @param credentialId keccak256 hash of the credential content
-    //  * @param credentialCid Content Identifier (CID) pointing to the full credential data
-    //  * @param sigV ECDSA signature recovery id (v)
-    //  * @param sigR ECDSA signature part (r)
-    //  * @param sigS ECDSA signature part (s)
-    //  * @param identity Ethereum address of the holder
-    //  * @param nonce Unique nonce to prevent replay attacks
-    //  * 
-    //  * Emits: CredentialIssued event
-    //  * 
-    //  * Reverts with:
-    //  * - SignatureVerificationFailed if signature is invalid
-    //  * - InvalidNonce if nonce is incorrect or already used
-    //  */
-    // function issueCredentialSigned(
-    //     address identity,
-    //     uint8 sigV,
-    //     bytes32 sigR,
-    //     bytes32 sigS,
-    //     bytes32 credentialId,
-    //     string calldata credentialCid,
-    //     uint256 nonce
-    // ) external;
+    /**
+     * @dev Issues a Verifiable Credential with off-chain signature (meta-transaction)
+     * 
+     * This function enables gasless credential issuance where the issuer signs
+     * the transaction off-chain and another party submits it on their behalf.
+     * 
+     * @param identity Ethereum address of the holder
+     * @param sigV ECDSA signature recovery id (v)
+     * @param sigR ECDSA signature part R
+     * @param sigS ECDSA signature part S
+     * @param credentialId keccak256 hash of the credential content
+     * @param issuerDid keccak256 hash of the issuer's DID
+     * @param holderDid keccak256 hash of the holder's DID
+     * @param credentialCid Content Identifier (CID) pointing to the full credential data
+     * 
+     * Emits: CredentialIssued event
+     * 
+     * Reverts with:
+     * - SignatureVerificationFailed if signature is invalid
+     * - InvalidNonce if nonce is incorrect or already used
+     */
+    function issueCredentialSigned(
+        address identity,
+        uint8 sigV,
+        bytes32 sigR,
+        bytes32 sigS,
+        bytes32 credentialId,
+        bytes32 issuerDid,
+        bytes32 holderDid,
+        string calldata credentialCid
+    ) external;
+
+    /**
+     * @dev Resolves a Verifiable Credential by its ID
+     * 
+     * Retrieves the complete credential record including metadata.
+     * 
+     * @param credentialId keccak256 hash of the credential to resolve
+     * @return credentialRecord Complete credential record with metadata
+     * 
+     * Reverts with:
+     * - CredentialNotFound if credential doesn't exist
+     */
+    // Note: This function is used to retrieve the credential data and metadata
+    // for display or verification purposes. It does not perform any validation.
+    function resolveCredential(
+        bytes32 credentialId
+    ) external returns (CredentialRecord memory credentialRecord);
 
     // /**
     //  * @dev Retrieves a Verifiable Credential by its hash
