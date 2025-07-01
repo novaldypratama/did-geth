@@ -14,8 +14,8 @@ import {
     CredentialAlreadyExists,
     CredentialNotFound,
     CredentialExpired,
-    CredentialRevoked,
-    CredentialSuspended,
+    CredentialIsRevoked,
+    CredentialIsSuspended,
     InvalidStatusTransition,
     IssuerNotFound,
     IssuerNotAuthorized,
@@ -97,6 +97,21 @@ contract CredentialRegistry is ICredentialRegistry {
         }
         _;
     }
+
+    /**
+    * @dev Modifier that ensures credential is not revoked
+    */
+    modifier _credentialNotRevoked(bytes32 credentialId) {
+        CredentialStatus status = _credentials[credentialId].metadata.status;
+        if (status == CredentialStatus.REVOKED) {
+            revert CredentialIsRevoked(
+                credentialId, 
+                uint64(block.timestamp),
+                "Cannot resolve revoked credential"
+            );
+        }
+        _;
+    }
     
     // /**
     //  * @dev Ensures credential is valid (not revoked, suspended, or expired)
@@ -162,6 +177,69 @@ contract CredentialRegistry is ICredentialRegistry {
         if (_didRegistry.resolveDid(holderAddress).metadata.owner != holderAddress) {
             revert InvalidCredentialHolder(holderAddress, "DID not controlled by holder address");
         }
+        _;
+    }
+
+    modifier _validStatusTransition(bytes32 credentialId, CredentialStatus newStatus) {
+        CredentialStatus currentStatus = _credentials[credentialId].metadata.status;
+    
+        // Prevent transition to NONE (invalid operational status)
+        if (newStatus == CredentialStatus.NONE) {
+            revert InvalidStatusTransition(
+                credentialId,
+                uint8(currentStatus),
+                uint8(newStatus),
+                "Cannot transition to NONE status"
+            );
+        }
+
+        // Handle transitions from ACTIVE
+        if (currentStatus == CredentialStatus.ACTIVE) {
+            if (newStatus != CredentialStatus.SUSPENDED && newStatus != CredentialStatus.REVOKED) {
+                revert InvalidStatusTransition(
+                    credentialId,
+                    uint8(currentStatus),
+                    uint8(newStatus),
+                    string(abi.encodePacked(
+                        "ACTIVE can only transition to SUSPENDED or REVOKED, not ",
+                        _statusToString(newStatus)
+                    ))
+                );
+            }
+        }
+        // Handle transitions from SUSPENDED
+        else if (currentStatus == CredentialStatus.SUSPENDED) {
+            if (newStatus != CredentialStatus.ACTIVE && newStatus != CredentialStatus.REVOKED) {
+                revert InvalidStatusTransition(
+                    credentialId,
+                    uint8(currentStatus),
+                    uint8(newStatus),
+                    string(abi.encodePacked(
+                        "SUSPENDED can only transition to ACTIVE or REVOKED, not ",
+                        _statusToString(newStatus)
+                    ))
+                );
+            }
+        }
+        // REVOKED is a terminal state - no transitions allowed
+        else if (currentStatus == CredentialStatus.REVOKED) {
+            revert InvalidStatusTransition(
+                credentialId,
+                uint8(currentStatus),
+                uint8(newStatus),
+                "REVOKED is a terminal state - no further transitions allowed"
+            );
+        }
+        // NONE should not be a current status in normal operations
+        else if (currentStatus == CredentialStatus.NONE) {
+            revert InvalidStatusTransition(
+                credentialId,
+                uint8(currentStatus),
+                uint8(newStatus),
+                "Cannot transition from NONE status - credential may not exist"
+            );
+        }
+        
         _;
     }
 
@@ -282,9 +360,97 @@ contract CredentialRegistry is ICredentialRegistry {
         _issueCredential(identity, actor, credentialId, issuerDid, holderDid, credentialCid);
     }
 
+    /// @inheritdoc ICredentialRegistry
+    function updateCredentialStatus(
+        address actor,
+        bytes32 credentialId,
+        CredentialStatus previousStatus,
+        CredentialStatus newStatus,
+        string calldata reason
+    ) public virtual 
+        _credentialExists(credentialId) 
+        _onlyAuthorizedRole 
+        _validIssuer(actor)
+        _validStatusTransition(credentialId, newStatus)
+    {
+        // Cache storage references for gas optimization
+        CredentialRecord storage credential = _credentials[credentialId];
+        CredentialMetadata storage metadata = credential.metadata;
+        
+        // Get issuer for this credential
+        address issuer = _issuerOf[credentialId];
+        
+        // Verify actor is the issuer or has sufficient privileges
+        if (actor != issuer) { 
+            revert IssuerNotAuthorized(actor, "Insufficient privileges for status update");
+        }
+
+        // Optimistic concurrency control: Verify current status matches expected
+        if (metadata.status != previousStatus) {
+            revert InvalidStatusTransition(
+                credentialId,
+                uint8(metadata.status),
+                uint8(newStatus),
+                string(abi.encodePacked(
+                    "Status mismatch: expected ",
+                    _statusToString(previousStatus),
+                    ", found ",
+                    _statusToString(metadata.status)
+                ))
+            );
+        }
+
+        // // Validate the proposed status transition
+        // if (!_isValidStatusTransition(metadata.status, newStatus)) {
+        //     revert InvalidStatusTransition(
+        //         credentialId,
+        //         uint8(metadata.status),
+        //         uint8(newStatus),
+        //         string(abi.encodePacked(
+        //             "Invalid transition from ",
+        //             _statusToString(metadata.status),
+        //             " to ",
+        //             _statusToString(newStatus)
+        //         ))
+        //     );
+        // }
+
+        // Prevent redundant updates (gas optimization)
+        if (metadata.status == newStatus) {
+            return; // No change needed
+        }
+
+        // Store previous status for event emission
+        CredentialStatus oldStatus = metadata.status;
+
+        // Update status with timestamp
+        metadata.status = newStatus;
+        
+        // Emit event for status update with detailed information
+        emit CredentialStatusUpdated(
+            credentialId,
+            oldStatus,
+            newStatus,
+            actor,
+            reason
+        );
+
+        // Emit specific lifecycle events for better indexing and monitoring
+        uint64 currentTimestamp = uint64(block.timestamp);
+        
+        if (newStatus == CredentialStatus.REVOKED) {
+            emit CredentialRevoked(credentialId, currentTimestamp, reason);
+        } else if (newStatus == CredentialStatus.SUSPENDED) {
+            emit CredentialSuspended(credentialId, currentTimestamp, reason);
+        } else if (newStatus == CredentialStatus.ACTIVE && oldStatus == CredentialStatus.SUSPENDED) {
+            // Emit reactivation event when credential is restored from suspended state
+            emit CredentialReactivated(credentialId, currentTimestamp, reason);
+        }
+    }
+
     function resolveCredential(
         bytes32 credentialId
-    ) public view virtual _credentialExists(credentialId) returns (CredentialRecord memory credentialRecord) {
+    ) public view virtual _credentialExists(credentialId) _credentialNotRevoked(credentialId) returns (CredentialRecord memory credentialRecord) {
         return _credentials[credentialId];
     }
 
@@ -372,4 +538,63 @@ contract CredentialRegistry is ICredentialRegistry {
         }
     }
 
+    // /**
+    // * @dev Validates credential status transitions according to W3C VC lifecycle
+    // * @param currentStatus The current status of the credential
+    // * @param newStatus The proposed new status
+    // * @return bool True if the transition is valid, false otherwise
+    // * 
+    // * Valid transitions:
+    // * - ACTIVE → SUSPENDED (temporary suspension)
+    // * - ACTIVE → REVOKED (permanent revocation)
+    // * - SUSPENDED → ACTIVE (reactivation)
+    // * - SUSPENDED → REVOKED (revoke suspended credential)
+    // * 
+    // * Invalid transitions:
+    // * - Any status → NONE (NONE is not a valid operational status)
+    // * - REVOKED → any other status (revocation is terminal)
+    // * - Any status → same status (redundant, but handled separately)
+    // */
+    // function _isValidStatusTransition(
+    //     CredentialStatus currentStatus,
+    //     CredentialStatus newStatus
+    // ) internal pure returns (bool) {
+    //     // Prevent transition to NONE
+    //     if (newStatus == CredentialStatus.NONE) {
+    //         return false;
+    //     }
+
+    //     // Allow transition from ACTIVE to SUSPENDED or REVOKED
+    //     if (currentStatus == CredentialStatus.ACTIVE) {
+    //         return newStatus == CredentialStatus.SUSPENDED || 
+    //                newStatus == CredentialStatus.REVOKED;
+    //     }
+
+    //     // Allow transition from SUSPENDED to ACTIVE or REVOKED
+    //     if (currentStatus == CredentialStatus.SUSPENDED) {
+    //         return newStatus == CredentialStatus.ACTIVE || 
+    //                newStatus == CredentialStatus.REVOKED;
+    //     }
+
+    //     // REVOKED is a terminal state - no transitions allowed
+    //     if (currentStatus == CredentialStatus.REVOKED) {
+    //         return false;
+    //     }
+
+    //     return false;
+    // }
+
+    /**
+    * @dev Converts CredentialStatus enum to human-readable string
+    * @param status The credential status to convert
+    * @return string representation of the status
+    * @notice Used for generating descriptive error messages
+    */
+    function _statusToString(CredentialStatus status) internal pure returns (string memory) {
+        if (status == CredentialStatus.NONE) return "NONE";
+        if (status == CredentialStatus.ACTIVE) return "ACTIVE";
+        if (status == CredentialStatus.REVOKED) return "REVOKED";
+        if (status == CredentialStatus.SUSPENDED) return "SUSPENDED";
+        return "UNKNOWN";
+    }
 }

@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 /**
  * @title CredentialTypes
  * @dev Data structures for Verifiable Credentials following W3C VC Data Model v1.1
+ * @notice These structures are designed to be gas-efficient and storage-optimized
+ * while adhering to the W3C Verifiable Credentials Data Model v1.1 specification.
  */
 
 /** 
@@ -26,8 +28,7 @@ struct MultiHash {
  * @title CredentialRecord
  * @dev Holds the verifiable credential data and its associated metadata.
  *
- * @param credential - Content Identifier (CID) pointing to the full credential
- * @param credHash - keccak256 hash of the JSON Canonicalization Scheme representation
+ * @param credentialHash - keccak256 hash of the JSON Canonicalization Scheme representation
  * @param metadata - Additional metadata associated with the credential
  */
 struct CredentialRecord {
@@ -39,16 +40,14 @@ struct CredentialRecord {
  * @title CredentialMetadata
  * @dev Holds essential metadata for a verifiable credential.
  * Storage-optimized by packing related fields together to minimize slot usage.
+ * @notice This structure is designed to be gas-efficient while providing necessary information about the credential.
+ * @notice The fields are ordered to optimize storage packing and reduce gas costs.
  *
- * @param issuer - keccak256 hash of the issuer's DID (did:method:address)
- * @param holder - keccak256 hash of the holder's DID (did:method:address)
  * @param issuanceDate - Timestamp indicating when the credential was issued
  * @param expirationDate - Timestamp indicating when the credential expires (0 for no expiration)
- * @param status - Reserved for future credential status flags (0 = default)
+ * @param status - Reserved for future credential status flags (1 = default)
  */
 struct CredentialMetadata {
-    // bytes32 issuer;          // 32 bytes - optimized from generic bytes
-    // bytes32 holder;          // 32 bytes - optimized from generic bytes
     uint64 issuanceDate;        // 8 bytes - reduced from uint256 since Unix timestamps fit in uint64
     uint64 expirationDate;      // 8 bytes - reduced from uint256 for the same reason
     CredentialStatus status;    // 1 byte - added for extensibility while optimizing packing
@@ -61,7 +60,8 @@ struct CredentialMetadata {
  * @notice This enum is used to track the lifecycle of a credential, allowing for future extensibility.
  */
 enum CredentialStatus {
+    NONE,       // Not created/invalid
     ACTIVE,     // Valid and usable
-    SUSPENDED,  // No longer usable but record is maintained
-    REVOKED
+    REVOKED,    // Credential has been revoked and is no longer valid
+    SUSPENDED   // No longer usable but record is maintained
 }

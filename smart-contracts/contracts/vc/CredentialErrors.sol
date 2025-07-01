@@ -35,23 +35,26 @@ error CredentialExpired(bytes32 credentialHash, uint64 expirationDate, uint64 cu
  * @notice Error thrown when attempting to use a revoked credential
  * @param credentialHash The keccak256 hash of the revoked credential
  * @param revokedAt The timestamp when the credential was revoked
+ * @param reason The reason for revocation
  */
-error CredentialRevoked(bytes32 credentialHash, uint64 revokedAt);
+error CredentialIsRevoked(bytes32 credentialHash, uint64 revokedAt, string reason);
 
 /**
  * @notice Error thrown when attempting to use a suspended credential
  * @param credentialHash The keccak256 hash of the suspended credential
  * @param suspendedAt The timestamp when the credential was suspended
+ * @param reason The reason for suspension
  */
-error CredentialSuspended(bytes32 credentialHash, uint64 suspendedAt);
+error CredentialIsSuspended(bytes32 credentialHash, uint64 suspendedAt, string reason);
 
 /**
  * @notice Error thrown when credential status transition is invalid
  * @param credentialHash The keccak256 hash of the credential
  * @param currentStatus The current status of the credential
  * @param attemptedStatus The status that was attempted to be set
+ * @param reason The reason for the invalid transition
  */
-error InvalidStatusTransition(bytes32 credentialHash, uint8 currentStatus, uint8 attemptedStatus);
+error InvalidStatusTransition(bytes32 credentialHash, uint8 currentStatus, uint8 attemptedStatus, string reason);
 
 // ============================================================================
 // ISSUER AND HOLDER ERRORS
