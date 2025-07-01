@@ -116,12 +116,12 @@ interface IDidRegistry {
      */
     function didActive(address identity) external view returns (bool isActive);
 
-    /**
-     * @dev Gets the current status of a DID
-     * @param identity Address of the DID
-     * @return status Current status of the DID
-     */
-    function getDidStatus(address identity) external view returns (DidStatus status);
+    // /**
+    //  * @dev Gets the current status of a DID
+    //  * @param identity Address of the DID
+    //  * @return status Current status of the DID
+    //  */
+    // function getDidStatus(address identity) external view returns (DidStatus status);
 
     /**
      * @dev Validates if provided hash matches the stored document hash

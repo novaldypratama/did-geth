@@ -42,7 +42,7 @@ contract DidRegistry is IDidRegistry {
      */
     modifier _didIsActive(address identity) {
         if (_dids[identity].metadata.status != DidStatus.ACTIVE) 
-            revert DidHasBeenDeactivated(identity, "access");
+            revert DidHasBeenDeactivated(identity, "Access");
         _;
     }
 
@@ -182,11 +182,11 @@ contract DidRegistry is IDidRegistry {
         return _dids[identity].metadata.status == DidStatus.ACTIVE;
     }
 
-    /// @inheritdoc IDidRegistry
-    function getDidStatus(address identity) public view override returns (DidStatus status) {
-        if (!didExists(identity)) return DidStatus.NONE;
-        return _dids[identity].metadata.status;
-    }
+    // /// @inheritdoc IDidRegistry
+    // function getDidStatus(address identity) public view override returns (DidStatus status) {
+    //     if (!didExists(identity)) return DidStatus.NONE;
+    //     return _dids[identity].metadata.status;
+    // }
 
     /// @inheritdoc IDidRegistry
     function validateDocumentHash(address identity, bytes32 hash) public view override _didExist(identity) returns (bool valid) {

@@ -51,14 +51,7 @@ error DidUpdateTooSoon(address identity, uint256 currentTime, uint256 earliestUp
  * @param did The malformed DID string
  * @param reason Brief explanation of what's wrong with the format
  */
-error IncorrectDidFormat(string did, string reason);
-
-/**
- * @dev Error that occurs when the DID method is not supported
- * @param method The unsupported method string
- * @param supportedMethods Array of supported method names
- */
-error UnsupportedDidMethod(string method, string[] supportedMethods);
+error IncorrectDidFormat(bytes32 did, string reason);
 
 /**
  * @dev Error that occurs when the DID document structure is invalid
@@ -71,7 +64,7 @@ error InvalidDidDocument(string reason);
  * @param providedHash The hash that was provided
  * @param storedHash The hash that was stored
  */
-error DidHashMismatch(bytes providedHash, bytes storedHash);
+error DidHashMismatch(bytes32 providedHash, bytes32 storedHash, string reason);
 
 //--------------------------------------------------------------------------
 // AUTHORIZATION ERRORS
@@ -83,3 +76,10 @@ error DidHashMismatch(bytes providedHash, bytes storedHash);
  * @param identity The address of the DID being operated on
  */
 error NotIdentityOwner(address actor, address identity);
+
+/**
+ * @dev Error that occurs when the issuer and holder DIDs are identical
+ * @param issuerDid The issuer Decentralized Identifier (DID)
+ * @param holderDid The holder Decentralized Identifier (DID)
+ */
+error IdenticalDidAddress(bytes32 issuerDid, bytes32 holderDid, string reason);
