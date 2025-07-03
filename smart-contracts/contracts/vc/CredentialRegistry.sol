@@ -41,26 +41,15 @@ contract CredentialRegistry is ICredentialRegistry {
     mapping(bytes32 credentialId => CredentialRecord credentialRecord) private _credentials;
     
     /**
-    * @dev Mappings to track issuer and holder relationships for credentials
+    * @dev Mappings to track holder relationships for credentials
     */
-    mapping(bytes32 credentialId => address issuer) public _issuerOf;
-    mapping(bytes32 credentialId => address holder) public _holderOf;
+    mapping(bytes32 credentialId => address holder) private _holderOf;
 
     /**
-    * @dev DID-based relationship mappings (for DID-based queries)
+    * @dev Cache for frequently accessed DID hashes
     */
-    mapping(bytes32 credentialId => bytes32 issuerDid) public _issuerDidOf;
-    mapping(bytes32 credentialId => bytes32 holderDid) public _holderDidOf;
-
-    /**
-    * @dev Reverse lookup indexes for efficient querying
-    * @notice These enable O(1) access to credential lists by address or DID
-    */
-    mapping(address issuer => bytes32[] credentialId) private _issuerCredentials;
-    mapping(address holder => bytes32[] credentialId) private _holderCredentials;
-
-    mapping(bytes32 issuerDid => bytes32[] credentialId) private _issuerDidCreds;
-    mapping(bytes32 holderDid => bytes32[] credentialId) private _holderDidCreds;
+    mapping(bytes32 credentialId => bytes32 issuerDid) private _issuerDidCache;
+    mapping(bytes32 credentialId => bytes32 holderDid) private _holderDidCache;
 
     // ========================================================================
     // MODIFIERS FOR ACCESS CONTROL AND VALIDATION
@@ -110,6 +99,14 @@ contract CredentialRegistry is ICredentialRegistry {
                 "Cannot resolve revoked credential"
             );
         }
+        _;
+    }
+    
+    /**
+    * @dev Modifier that ensures the caller is the credential issuer
+    */
+    modifier _onlyCredentialIssuer(bytes32 credentialId) {
+        require(_credentials[credentialId].issuer == msg.sender, "Only issuer");
         _;
     }
     
@@ -377,11 +374,8 @@ contract CredentialRegistry is ICredentialRegistry {
         CredentialRecord storage credential = _credentials[credentialId];
         CredentialMetadata storage metadata = credential.metadata;
         
-        // Get issuer for this credential
-        address issuer = _issuerOf[credentialId];
-        
         // Verify actor is the issuer or has sufficient privileges
-        if (actor != issuer) { 
+        if (actor != msg.sender) { 
             revert IssuerNotAuthorized(actor, "Insufficient privileges for status update");
         }
 
@@ -454,6 +448,38 @@ contract CredentialRegistry is ICredentialRegistry {
         return _credentials[credentialId];
     }
 
+    function getIssuerDidHash(bytes32 credentialId) public view returns (bytes32) {
+        bytes32 cached = _issuerDidCache[credentialId];
+        if (cached != bytes32(0)) return cached;
+        
+        // Compute and potentially cache
+        return keccak256(abi.encodePacked("did:ethr:", _credentials[credentialId].issuer));
+    }
+
+    // function cacheDidHash(bytes32 credentialId, address holder) _onlyAuthorizedRole external {
+    //     // Only cache if frequently accessed
+    //     CredentialRecord storage cred = _credentials[credentialId];
+
+    //     bytes32 holderDid = keccak256(abi.encodePacked("did:ethr:", cred.issuer));
+    //     bytes32 holderDid = keccak256(abi.encodePacked("did:ethr:", holder));
+
+    //     _issuerDidCache[credentialId] = issuerDid;
+    //     _holderDidCache[credentialId] = holderDid;
+    // }
+
+    function getHolder(bytes32 credentialId) external view returns (address) {
+        address cachedHolder = _holderOf[credentialId];
+        if (cachedHolder != address(0)) return cachedHolder;
+        
+        // Fallback to event parsing (off-chain indexing)
+        revert("Holder not cached - use event logs");
+    }
+    
+    // function cacheHolder(bytes32 credentialId, address holder) external {
+    //     require(_credentials[credentialId].issuer == msg.sender, "Only issuer");
+    //     _holderDidCache[credentialId] = holder;
+    // }
+
     /**
     * @dev Internal credential issuance with optimized validation and storage
     */
@@ -477,6 +503,7 @@ contract CredentialRegistry is ICredentialRegistry {
         // Store credential record (PRIMARY STORAGE BY CREDENTIAL ID)
         _credentials[credentialId] = CredentialRecord({
             credentialHash: credentialId,
+            issuer: actor,
             metadata: CredentialMetadata({
                 issuanceDate: uint64(block.timestamp),
                 expirationDate: 0, // Default to no expiration
@@ -484,19 +511,11 @@ contract CredentialRegistry is ICredentialRegistry {
             })
         });
         
-        // Offload issuer/holder relationships into side mappings
-        _issuerOf[credentialId] = actor;
+        // Offload holder relationships into side mappings
         _holderOf[credentialId] = identity;
 
-        _issuerDidOf[credentialId] = issuerDid;
-        _holderDidOf[credentialId] = holderDid;
-
-        // Update reverse lookup indexes for efficient querying
-        _issuerCredentials[actor].push(credentialId);
-        _holderCredentials[identity].push(credentialId);
-
-        _issuerDidCreds[issuerDid].push(credentialId);
-        _holderDidCreds[holderDid].push(credentialId);
+        _issuerDidCache[credentialId] = issuerDid;
+        _holderDidCache[credentialId] = holderDid;
         
         // Emit event for credential issuance
         emit CredentialIssued(

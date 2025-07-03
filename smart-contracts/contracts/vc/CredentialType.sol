@@ -29,10 +29,12 @@ struct MultiHash {
  * @dev Holds the verifiable credential data and its associated metadata.
  *
  * @param credentialHash - keccak256 hash of the JSON Canonicalization Scheme representation
+ * @param issuer - Address of the issuer of the credential
  * @param metadata - Additional metadata associated with the credential
  */
 struct CredentialRecord {
-    bytes32 credentialHash;        // Using bytes32 for fixed-size storage optimization since it's a keccak256 hash
+    bytes32 credentialHash;         // Using bytes32 for fixed-size storage optimization since it's a keccak256 hash
+    address issuer;                 // Address of the issuer of the credential
     CredentialMetadata metadata;
 }
 
