@@ -48,50 +48,42 @@ interface ICredentialRegistry {
      * @param previousStatus Previous status of the credential
      * @param newStatus New status of the credential
      * @param updatedBy Address that performed the update
-     * @param reason Optional reason for the status change
      */
     event CredentialStatusUpdated(
         bytes32 indexed credentialId,
         CredentialStatus previousStatus,
         CredentialStatus newStatus,
-        address indexed updatedBy,
-        string reason
+        address indexed updatedBy
     );
 
     /**
      * @dev Emitted when a Verifiable Credential is revoked
      * @param credentialHash keccak256 hash of the revoked credential
      * @param revokedAt Unix timestamp of revocation
-     * @param reason Reason for revocation
      */
     event CredentialRevoked(
         bytes32 indexed credentialHash,
-        uint64 revokedAt,
-        string reason
+        uint64 revokedAt
     );
 
     /**
      * @dev Emitted when a Verifiable Credential is suspended
      * @param credentialHash keccak256 hash of the suspended credential
      * @param suspendedAt Unix timestamp of suspension
-     * @param reason Reason for suspension
      */
     event CredentialSuspended(
         bytes32 indexed credentialHash,
-        uint64 suspendedAt,
-        string reason
+        uint64 suspendedAt
     );
 
     /**
      * @dev Emitted when a Verifiable Credential is reactivated from suspended status
      * @param credentialHash keccak256 hash of the reactivated credential
      * @param reactivatedAt Unix timestamp of reactivation
-     * @param reason Reason for reactivation
      */
     event CredentialReactivated(
         bytes32 indexed credentialHash,
-        uint64 reactivatedAt,
-        string reason
+        uint64 reactivatedAt
     );
 
     // /**
@@ -257,11 +249,9 @@ interface ICredentialRegistry {
     * - Status transition must be valid according to W3C VC lifecycle
     * - Previous status must match current status (optimistic concurrency control)
     * 
-    * @param actor Address performing the status update (must be issuer or have TRUSTEE role)
     * @param credentialId keccak256 hash of the credential to update
     * @param previousStatus Expected current status (for optimistic concurrency control)
     * @param newStatus Desired new status to set
-    * @param reason Human-readable reason for the status change
     * 
     * @custom:security This function implements multiple layers of security:
     * - Role-based access control via modifiers
@@ -278,11 +268,9 @@ interface ICredentialRegistry {
     * - InvalidStatusTransition if status change is not allowed or current status mismatch
     */
     function updateCredentialStatus(
-        address actor,
         bytes32 credentialId,
         CredentialStatus previousStatus,
-        CredentialStatus newStatus,
-        string calldata reason
+        CredentialStatus newStatus
     ) external;
 
     // // ========================================================================

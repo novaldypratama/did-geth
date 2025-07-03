@@ -13,7 +13,7 @@ import { CredentialRecord, CredentialMetadata, CredentialStatus } from "./Creden
 import {
     CredentialAlreadyExists,
     CredentialNotFound,
-    CredentialExpired,
+    // CredentialExpired,
     CredentialIsRevoked,
     CredentialIsSuspended,
     InvalidStatusTransition,
@@ -22,10 +22,10 @@ import {
     IssuerHasBeenDeactivated,
     HolderNotFound,
     HolderNotAuthorized,
-    InvalidCredentialHolder,
-    InvalidIssuanceDate,
-    InvalidExpirationDate,
-    NotCredentialOwner
+    InvalidCredentialHolder
+    // InvalidIssuanceDate,
+    // InvalidExpirationDate,
+    // NotCredentialOwner
 } from "./CredentialErrors.sol";
 
 contract CredentialRegistry is ICredentialRegistry {
@@ -61,10 +61,6 @@ contract CredentialRegistry is ICredentialRegistry {
     modifier _onlyAuthorizedRole() {
         _roleControl.isTrusteeOrIssuer(msg.sender);
         _;
-        // if (!_roleControl.isTrusteeOrIssuer(msg.sender)) {
-        //     revert Unauthorized(msg.sender);
-        // }
-        // _;
     }
 
     /**
@@ -101,7 +97,7 @@ contract CredentialRegistry is ICredentialRegistry {
         }
         _;
     }
-    
+
     /**
     * @dev Modifier that ensures the caller is the credential issuer
     */
@@ -109,29 +105,6 @@ contract CredentialRegistry is ICredentialRegistry {
         require(_credentials[credentialId].issuer == msg.sender, "Only issuer");
         _;
     }
-    
-    // /**
-    //  * @dev Ensures credential is valid (not revoked, suspended, or expired)
-    //  */
-    // modifier _credentialValid(bytes32 credentialId) {
-    //     CredentialRecord memory credential = _credentials[credentialId];
-        
-    //     // Check if revoked
-    //     if (credential.status.revoked) {
-    //         revert CredentialRevoked(credentialId, 0, "Credential revoked");
-    //     }
-        
-    //     // Check if expired
-    //     if (credential.metadata.expirationDate != 0 && 
-    //         credential.metadata.expirationDate <= block.timestamp) {
-    //         revert CredentialExpired(
-    //             credentialId, 
-    //             credential.metadata.expirationDate, 
-    //             uint64(block.timestamp)
-    //         );
-    //     }
-    //     _;
-    // }
 
     /**
     * @dev Validates issuer is registered, active, and authorized
@@ -240,68 +213,6 @@ contract CredentialRegistry is ICredentialRegistry {
         _;
     }
 
-    // /**
-    // * @dev Minimal but critical on-chain DID validation
-    // * Purpose: Prevent attacks and ensure data integrity
-    // */
-    // modifier _validateDidParameters(bytes32 issuerDid, bytes32 holderDid) {
-    //     // 1. Prevent zero/empty DIDs
-    //     if (issuerDid == bytes32(0)) revert IncorrectDidFormat(issuerDid, "Issuer DID cannot be empty");
-    //     if (holderDid == bytes32(0)) revert IncorrectDidFormat(holderDid, "Holder DID cannot be empty");
-        
-    //     // 2. Prevent identical issuer/holder (self-issuance detection)
-    //     if (issuerDid == holderDid) revert IdenticalDidAddress(issuerDid, holderDid, "Issuer and holder cannot be identical");
-    //     _;
-    // }
-
-    // /**
-    // * @dev Cross-reference DID hashes with actual addresses
-    // * Purpose: Ensure DID consistency with identity addresses
-    // */
-    // modifier _validateDidConsistency(
-    //     address identity,
-    //     address actor, 
-    //     bytes32 issuerDid, 
-    //     bytes32 holderDid
-    // ) {
-    //     // Verify issuer DID corresponds to actor address
-    //     bytes32 expectedIssuerDidHash = keccak256(abi.encodePacked("did:ethr:", actor));
-    //     if (issuerDid != expectedIssuerDidHash) {
-    //         revert DidHashMismatch(expectedIssuerDidHash, issuerDid, "Issuer DID does not match actor address");
-    //     }
-        
-    //     // Verify holder DID corresponds to identity address  
-    //     bytes32 expectedHolderDidHash = keccak256(abi.encodePacked("did:ethr:", identity));
-    //     if (holderDid != expectedHolderDidHash) {
-    //         revert DidHashMismatch(expectedHolderDidHash, holderDid, "Holder DID does not match identity address");
-    //     }
-    //     _;
-    // }
-
-    // /**
-    //  * @dev Ensures caller is authorized to modify credential (issuer or has role)
-    //  */
-    // modifier _authorizedForCredential(bytes32 credentialId) {
-    //     OptimizedCredentialRecord storage credential = _credentials[credentialId];
-    //     if (credential.metadata.issuanceDate == 0) {
-    //         revert CredentialNotFound(credentialId);
-    //     }
-
-    //     // Get issuer hash from ID mapping
-    //     bytes32 issuerHash = _issuerIdToHash[credential.metadata.issuerId];
-    //     IssuerInfo storage issuer = _issuers[issuerHash];
-        
-    //     // Allow if caller is the issuer or has required role
-    //     if (issuer.issuerAddress != msg.sender) {
-    //         try _roleControl.isTrusteeOrIssuer(msg.sender) {
-    //             // Caller has required role
-    //         } catch {
-    //             revert IssuerNotAuthorized(issuerHash, "modify credential");
-    //         }
-    //     }
-    //     _;
-    // }
-
     /**
      * @dev  Constructor to initialize the CredentialRegistry with role control and DID registry addresses
      * @param roleControlAddress The address of the RoleControl contract for access management
@@ -359,25 +270,19 @@ contract CredentialRegistry is ICredentialRegistry {
 
     /// @inheritdoc ICredentialRegistry
     function updateCredentialStatus(
-        address actor,
         bytes32 credentialId,
         CredentialStatus previousStatus,
-        CredentialStatus newStatus,
-        string calldata reason
+        CredentialStatus newStatus
     ) public virtual 
         _credentialExists(credentialId) 
         _onlyAuthorizedRole 
-        _validIssuer(actor)
+        _validIssuer(msg.sender)
+        _onlyCredentialIssuer(credentialId)
         _validStatusTransition(credentialId, newStatus)
     {
         // Cache storage references for gas optimization
         CredentialRecord storage credential = _credentials[credentialId];
         CredentialMetadata storage metadata = credential.metadata;
-        
-        // Verify actor is the issuer or has sufficient privileges
-        if (actor != msg.sender) { 
-            revert IssuerNotAuthorized(actor, "Insufficient privileges for status update");
-        }
 
         // Optimistic concurrency control: Verify current status matches expected
         if (metadata.status != previousStatus) {
@@ -393,21 +298,6 @@ contract CredentialRegistry is ICredentialRegistry {
                 ))
             );
         }
-
-        // // Validate the proposed status transition
-        // if (!_isValidStatusTransition(metadata.status, newStatus)) {
-        //     revert InvalidStatusTransition(
-        //         credentialId,
-        //         uint8(metadata.status),
-        //         uint8(newStatus),
-        //         string(abi.encodePacked(
-        //             "Invalid transition from ",
-        //             _statusToString(metadata.status),
-        //             " to ",
-        //             _statusToString(newStatus)
-        //         ))
-        //     );
-        // }
 
         // Prevent redundant updates (gas optimization)
         if (metadata.status == newStatus) {
@@ -425,20 +315,19 @@ contract CredentialRegistry is ICredentialRegistry {
             credentialId,
             oldStatus,
             newStatus,
-            actor,
-            reason
+            msg.sender
         );
 
         // Emit specific lifecycle events for better indexing and monitoring
         uint64 currentTimestamp = uint64(block.timestamp);
         
         if (newStatus == CredentialStatus.REVOKED) {
-            emit CredentialRevoked(credentialId, currentTimestamp, reason);
+            emit CredentialRevoked(credentialId, currentTimestamp);
         } else if (newStatus == CredentialStatus.SUSPENDED) {
-            emit CredentialSuspended(credentialId, currentTimestamp, reason);
+            emit CredentialSuspended(credentialId, currentTimestamp);
         } else if (newStatus == CredentialStatus.ACTIVE && oldStatus == CredentialStatus.SUSPENDED) {
             // Emit reactivation event when credential is restored from suspended state
-            emit CredentialReactivated(credentialId, currentTimestamp, reason);
+            emit CredentialReactivated(credentialId, currentTimestamp);
         }
     }
 
@@ -448,7 +337,7 @@ contract CredentialRegistry is ICredentialRegistry {
         return _credentials[credentialId];
     }
 
-    function getIssuerDidHash(bytes32 credentialId) public view returns (bytes32) {
+    function getIssuerDidHash(bytes32 credentialId) public view _credentialNotRevoked(credentialId) returns (bytes32) {
         bytes32 cached = _issuerDidCache[credentialId];
         if (cached != bytes32(0)) return cached;
         
@@ -456,29 +345,21 @@ contract CredentialRegistry is ICredentialRegistry {
         return keccak256(abi.encodePacked("did:ethr:", _credentials[credentialId].issuer));
     }
 
-    // function cacheDidHash(bytes32 credentialId, address holder) _onlyAuthorizedRole external {
-    //     // Only cache if frequently accessed
-    //     CredentialRecord storage cred = _credentials[credentialId];
+    function getHolderDidHash(bytes32 credentialId) public view _credentialNotRevoked(credentialId) returns (bytes32) {
+        bytes32 cached = _holderDidCache[credentialId];
+        if (cached != bytes32(0)) return cached;
+        
+        // Compute and potentially cache
+        return keccak256(abi.encodePacked("did:ethr:", _holderOf[credentialId]));
+    }
 
-    //     bytes32 holderDid = keccak256(abi.encodePacked("did:ethr:", cred.issuer));
-    //     bytes32 holderDid = keccak256(abi.encodePacked("did:ethr:", holder));
-
-    //     _issuerDidCache[credentialId] = issuerDid;
-    //     _holderDidCache[credentialId] = holderDid;
-    // }
-
-    function getHolder(bytes32 credentialId) external view returns (address) {
+    function getHolder(bytes32 credentialId) external view _credentialNotRevoked(credentialId) returns (address) {
         address cachedHolder = _holderOf[credentialId];
         if (cachedHolder != address(0)) return cachedHolder;
         
         // Fallback to event parsing (off-chain indexing)
         revert("Holder not cached - use event logs");
     }
-    
-    // function cacheHolder(bytes32 credentialId, address holder) external {
-    //     require(_credentials[credentialId].issuer == msg.sender, "Only issuer");
-    //     _holderDidCache[credentialId] = holder;
-    // }
 
     /**
     * @dev Internal credential issuance with optimized validation and storage
@@ -556,52 +437,6 @@ contract CredentialRegistry is ICredentialRegistry {
             revert DidHashMismatch(expectedHolderDidHash, holderDid, "Holder DID does not match identity address");
         }
     }
-
-    // /**
-    // * @dev Validates credential status transitions according to W3C VC lifecycle
-    // * @param currentStatus The current status of the credential
-    // * @param newStatus The proposed new status
-    // * @return bool True if the transition is valid, false otherwise
-    // * 
-    // * Valid transitions:
-    // * - ACTIVE → SUSPENDED (temporary suspension)
-    // * - ACTIVE → REVOKED (permanent revocation)
-    // * - SUSPENDED → ACTIVE (reactivation)
-    // * - SUSPENDED → REVOKED (revoke suspended credential)
-    // * 
-    // * Invalid transitions:
-    // * - Any status → NONE (NONE is not a valid operational status)
-    // * - REVOKED → any other status (revocation is terminal)
-    // * - Any status → same status (redundant, but handled separately)
-    // */
-    // function _isValidStatusTransition(
-    //     CredentialStatus currentStatus,
-    //     CredentialStatus newStatus
-    // ) internal pure returns (bool) {
-    //     // Prevent transition to NONE
-    //     if (newStatus == CredentialStatus.NONE) {
-    //         return false;
-    //     }
-
-    //     // Allow transition from ACTIVE to SUSPENDED or REVOKED
-    //     if (currentStatus == CredentialStatus.ACTIVE) {
-    //         return newStatus == CredentialStatus.SUSPENDED || 
-    //                newStatus == CredentialStatus.REVOKED;
-    //     }
-
-    //     // Allow transition from SUSPENDED to ACTIVE or REVOKED
-    //     if (currentStatus == CredentialStatus.SUSPENDED) {
-    //         return newStatus == CredentialStatus.ACTIVE || 
-    //                newStatus == CredentialStatus.REVOKED;
-    //     }
-
-    //     // REVOKED is a terminal state - no transitions allowed
-    //     if (currentStatus == CredentialStatus.REVOKED) {
-    //         return false;
-    //     }
-
-    //     return false;
-    // }
 
     /**
     * @dev Converts CredentialStatus enum to human-readable string
