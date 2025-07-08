@@ -35,33 +35,33 @@ The smart contract system consists of three interconnected layers:
 ```
 smart-contracts/
 ├── contracts/
-│   ├── auth/                    # Authentication & Role Management
-│   │   ├── AuthErrors.sol       # Custom error definitions
-│   │   ├── IRoleControl.sol     # Role control interface
-│   │   └── RoleControl.sol      # Role management implementation
+│   ├── auth/                       # Authentication & Role Management
+│   │   ├── AuthErrors.sol          # Custom error definitions
+│   │   ├── IRoleControl.sol        # Role control interface
+│   │   └── RoleControl.sol         # Role management implementation
 │   │
-│   ├── did/                     # DID Registry (W3C DID Core)
-│   │   ├── DidErrors.sol        # DID-specific error definitions
-│   │   ├── DidTypeNew.sol       # DID data structures
-│   │   ├── IDidRegistry.sol     # DID registry interface
-│   │   └── DidRegistry.sol      # DID registry implementation
+│   ├── did/                        # DID Registry (W3C DID Core)
+│   │   ├── DidErrors.sol           # DID-specific error definitions
+│   │   ├── DidTypeNew.sol          # DID data structures
+│   │   ├── IDidRegistry.sol        # DID registry interface
+│   │   └── DidRegistry.sol         # DID registry implementation
 │   │
-│   └── vc/                      # Verifiable Credentials (W3C VC v1.1)
-│       ├── CredentialErrors.sol # VC-specific error definitions
-│       ├── CredentialType.sol   # VC data structures
+│   └── vc/                         # Verifiable Credentials (W3C VC v1.1)
+│       ├── CredentialErrors.sol    # VC-specific error definitions
+│       ├── CredentialType.sol      # VC data structures
 │       ├── ICredentialRegistry.sol # VC registry interface
 │       └── CredentialRegistry.sol  # VC registry implementation
 │
-├── scripts/                     # Deployment & Management Scripts
-│   ├── deploy.js               # Complete system deployment
-│   ├── assign-issuer-role.js   # Assign issuer privileges
-│   ├── assign-holder-role.js   # Assign holder privileges
-│   ├── web3signer-create-dids.js    # Create DIDs via Web3Signer
+├── scripts/                        # Deployment & Management Scripts
+│   ├── deploy.js                   # Complete SSI system deployment
+│   ├── assign-issuer-role.js       # Assign issuer privileges
+│   ├── assign-holder-role.js       # Assign holder privileges
+│   ├── web3signer-create-dids.js   # Create DIDs via Web3Signer
 │   └── web3signer-issue-creds.js   # Issue VCs via Web3Signer
 │
-├── hardhat.config.js           # Hardhat configuration
-├── package.json               # Dependencies & project metadata
-└── .gitignore                # Git ignore rules
+├── hardhat.config.js               # Hardhat configuration
+├── package.json                    # Dependencies & project metadata
+└── .gitignore                      # Git ignore rules
 ```
 
 ## 🔧 Core Smart Contracts
@@ -251,15 +251,23 @@ Generate VC → Canonicalize → Hash → IPFS Upload → On-Chain Registry → 
 ## 🔮 Future Enhancements
 
 ### Planned Features
-- **Revocation Registry Management**: 
-- **Verifiable Presentation**: Selective Disclosure, Holder possess one or more valid VCs
-- **Delegation Patterns**: Proxy-based upgradability
-- **Cross-chain Compatibility**: Multi-network DID resolution (Interoperability)
+- **Versioning & Key Rotation Management**: 
+- **Revocation Registry Management**: Modular, scalable, and privacy-preserving revocation system
+- **Verifiable Presentation Registry**: Selective Disclosure, Holder possess one or more valid VCs
+- **Cross-chain Compatibility**: Multi-network DID resolution (Interoperable System)
+- **Delegation Patterns**: Proxy-based contract upgradability with controlled authorization (EIP-1967 + UUPS/EIP-1822)
 
 ### Optimization Opportunities
 - **EIP-1167 Minimal Proxies**: For credential templates
-- **Diamond Pattern**: For modular contract upgrades
+- **Diamond Pattern/Multi-Facet Proxy**: For modular contract upgrades (EIP-2535)
 - **Layer 2 Integration**: For reduced gas costs
+
+### Possible Options
+- **Conventional Databases Integration**: Aside from IPFS, utilizing Encrypted Off-Chain Storage to store whole DID/VC, such as cloud DB, NoSQL, SQLite, etc.
+- **Adding other Execution Clients or DID Frameworks**: Nethermind, Erigon, Reth, Indy-Besu, Indy-Plenum
+- **Zero-Knowledge Proof Verification**: Mathematical proof for verifiable credential verification
+- **Other Consensus Algorithms Implementation**: QBFT, IBFT 2.0, Raft
+- **Consensus Client Integration**: Running private PoS (testnet) mimic the Ethereum mainnet's merge for testing the real-world traffic
 
 ## 📚 W3C Standards Compliance
 
@@ -290,3 +298,4 @@ git push origin feature/new-functionality
 - [W3C VC Data Model](https://www.w3.org/TR/vc-data-model/)
 - [Ethereum Development Documentation](https://ethereum.org/developers/)
 - [Hardhat Framework Guide](https://hardhat.org/getting-started/)
+- [Ethers.js v6 Library Docs](https://docs.ethers.org/v6/)
