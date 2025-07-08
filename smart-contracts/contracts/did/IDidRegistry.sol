@@ -12,16 +12,18 @@ interface IDidRegistry {
      * @dev Emitted when a new DID is created
      * @param identity Address of the created DID
      * @param docHash Hash of the DID document
+     * @param didDocCid CID of the DID document in IPFS
      */
-    event DIDCreated(address indexed identity, bytes32 docHash);
+    event DIDCreated(address indexed identity, bytes32 docHash, string didDocCid);
 
     /**
      * @dev Emitted when a DID document is updated
      * @param identity Address of the updated DID
      * @param docHash Hash of the updated DID document
      * @param versionId New version ID
+     * @param didDocCid Updated CID of the DID document in IPFS
      */
-    event DIDUpdated(address indexed identity, bytes32 docHash, uint32 versionId);
+    event DIDUpdated(address indexed identity, bytes32 docHash, uint32 versionId, string didDocCid);
 
     /**
      * @dev Emitted when a DID is deactivated
@@ -33,8 +35,9 @@ interface IDidRegistry {
      * @dev Creates a new DID with document hash
      * @param identity Address of DID identity owner
      * @param docHash Hash of DID document for integrity verification
+     * @param didDocCid CID of the DID document for storage
      */
-    function createDid(address identity, bytes32 docHash) external;
+    function createDid(address identity, bytes32 docHash, string calldata didDocCid) external;
 
     /**
      * @dev Creates a DID with off-chain signature (for delegated transactions)
@@ -43,21 +46,24 @@ interface IDidRegistry {
      * @param sigR Part of EcDSA signature
      * @param sigS Part of EcDSA signature
      * @param docHash Hash of DID document for integrity verification
+     * @param didDocCid CID of the DID document for storage
      */
     function createDidSigned(
         address identity,
         uint8 sigV,
         bytes32 sigR,
         bytes32 sigS,
-        bytes32 docHash
+        bytes32 docHash,
+        string calldata didDocCid
     ) external;
 
     /**
      * @dev Updates an existing DID document
      * @param identity Address of the DID to update
      * @param docHash Updated hash of DID document
+     * @param didDocCid Updated CID of the DID document for storage
      */
-    function updateDid(address identity, bytes32 docHash) external;
+    function updateDid(address identity, bytes32 docHash, string calldata didDocCid) external;
 
     /**
      * @dev Updates a DID with off-chain signature
@@ -66,13 +72,15 @@ interface IDidRegistry {
      * @param sigR Part of EcDSA signature
      * @param sigS Part of EcDSA signature
      * @param docHash Updated hash of DID document
+     * @param didDocCid Updated CID of the DID document for storage
      */
     function updateDidSigned(
         address identity,
         uint8 sigV,
         bytes32 sigR,
         bytes32 sigS,
-        bytes32 docHash
+        bytes32 docHash,
+        string calldata didDocCid
     ) external;
 
     /**

@@ -94,8 +94,8 @@ contract DidRegistry is IDidRegistry {
     // PUBLIC FUNCTIONS - IMPLEMENTATION OF INTERFACE
 
     /// @inheritdoc IDidRegistry
-    function createDid(address identity, bytes32 docHash) public override {
-        _createDid(identity, msg.sender, docHash);
+    function createDid(address identity, bytes32 docHash, string calldata didDocCid) public override {
+        _createDid(identity, msg.sender, docHash, didDocCid);
     }
 
     /// @inheritdoc IDidRegistry
@@ -104,23 +104,24 @@ contract DidRegistry is IDidRegistry {
         uint8 sigV,
         bytes32 sigR,
         bytes32 sigS,
-        bytes32 docHash
+        bytes32 docHash,
+        string calldata didDocCid
     ) public override {
         // Recreate the signed message hash
         bytes32 hash = keccak256(
-            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "createDid", docHash)
+            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "createDid", docHash, didDocCid)
         );
 
         // Recover the signer from signature
         address signer = ecrecover(hash, sigV, sigR, sigS);
 
         // Call internal function with recovered signer
-        _createDid(identity, signer, docHash);
+        _createDid(identity, signer, docHash, didDocCid);
     }
 
     /// @inheritdoc IDidRegistry
-    function updateDid(address identity, bytes32 docHash) public override {
-        _updateDid(identity, msg.sender, docHash);
+    function updateDid(address identity, bytes32 docHash, string calldata didDocCid) public override {
+        _updateDid(identity, msg.sender, docHash, didDocCid);
     }
 
     /// @inheritdoc IDidRegistry
@@ -129,18 +130,19 @@ contract DidRegistry is IDidRegistry {
         uint8 sigV,
         bytes32 sigR,
         bytes32 sigS,
-        bytes32 docHash
+        bytes32 docHash,
+        string calldata didDocCid
     ) public override {
         // Recreate the signed message hash
         bytes32 hash = keccak256(
-            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "updateDid", docHash)
+            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "updateDid", docHash, didDocCid)
         );
 
         // Recover the signer from signature
         address signer = ecrecover(hash, sigV, sigR, sigS);
 
         // Call internal function with recovered signer
-        _updateDid(identity, signer, docHash);
+        _updateDid(identity, signer, docHash, didDocCid);
     }
 
     /// @inheritdoc IDidRegistry
@@ -200,11 +202,13 @@ contract DidRegistry is IDidRegistry {
      * @param identity Address of the DID
      * @param actor Address of the actor (sender or recovered signer)
      * @param docHash Hash of the DID document
+     * @param didDocCid CID of the DID document for storage
      */
     function _createDid(
         address identity,
         address actor,
-        bytes32 docHash
+        bytes32 docHash,
+        string calldata didDocCid
     )
         internal
         _didNotExist(identity)
@@ -225,7 +229,7 @@ contract DidRegistry is IDidRegistry {
         _dids[identity].metadata.status = DidStatus.ACTIVE;
 
         // Emit event
-        emit DIDCreated(identity, docHash);
+        emit DIDCreated(identity, docHash, didDocCid);
     }
 
     /**
@@ -237,7 +241,8 @@ contract DidRegistry is IDidRegistry {
     function _updateDid(
         address identity,
         address actor,
-        bytes32 docHash
+        bytes32 docHash,
+        string calldata didDocCid
     )
         internal
         _didExist(identity)
@@ -254,7 +259,7 @@ contract DidRegistry is IDidRegistry {
         _dids[identity].metadata.versionId = uint32(block.number);
 
         // Emit event with new version ID for tracking
-        emit DIDUpdated(identity, docHash, _dids[identity].metadata.versionId);
+        emit DIDUpdated(identity, docHash, _dids[identity].metadata.versionId, didDocCid);
     }
 
     /**
