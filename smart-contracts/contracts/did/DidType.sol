@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
  * @title DID Types
  * @dev Optimized data structures for DID document storage with efficient packing
  * @notice These structures are designed to minimize gas costs and storage usage
- * while adhering to the W3C DID Core specification.
+ * while adhering to the W3C DID Core v1.0 specification.
  */
 
 /**

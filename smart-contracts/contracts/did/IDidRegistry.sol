@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import { DidRecord, DidStatus } from "./DidTypeNew.sol";
+import { DidRecord, DidStatus } from "./DidType.sol";
 
 /**
  * @title IDidRegistry
@@ -12,18 +12,18 @@ interface IDidRegistry {
      * @dev Emitted when a new DID is created
      * @param identity Address of the created DID
      * @param docHash Hash of the DID document
-     * @param didDocCid CID of the DID document in IPFS
+     * @param docCid CID of the DID document in IPFS
      */
-    event DIDCreated(address indexed identity, bytes32 docHash, string didDocCid);
+    event DIDCreated(address indexed identity, bytes32 docHash, string docCid);
 
     /**
      * @dev Emitted when a DID document is updated
      * @param identity Address of the updated DID
      * @param docHash Hash of the updated DID document
      * @param versionId New version ID
-     * @param didDocCid Updated CID of the DID document in IPFS
+     * @param docCid Updated CID of the DID document in IPFS
      */
-    event DIDUpdated(address indexed identity, bytes32 docHash, uint32 versionId, string didDocCid);
+    event DIDUpdated(address indexed identity, bytes32 docHash, uint32 versionId, string docCid);
 
     /**
      * @dev Emitted when a DID is deactivated
@@ -35,9 +35,9 @@ interface IDidRegistry {
      * @dev Creates a new DID with document hash
      * @param identity Address of DID identity owner
      * @param docHash Hash of DID document for integrity verification
-     * @param didDocCid CID of the DID document for storage
+     * @param docCid CID of the DID document for storage
      */
-    function createDid(address identity, bytes32 docHash, string calldata didDocCid) external;
+    function createDid(address identity, bytes32 docHash, string calldata docCid) external;
 
     /**
      * @dev Creates a DID with off-chain signature (for delegated transactions)
@@ -46,7 +46,7 @@ interface IDidRegistry {
      * @param sigR Part of EcDSA signature
      * @param sigS Part of EcDSA signature
      * @param docHash Hash of DID document for integrity verification
-     * @param didDocCid CID of the DID document for storage
+     * @param docCid CID of the DID document for storage
      */
     function createDidSigned(
         address identity,
@@ -54,16 +54,16 @@ interface IDidRegistry {
         bytes32 sigR,
         bytes32 sigS,
         bytes32 docHash,
-        string calldata didDocCid
+        string calldata docCid
     ) external;
 
     /**
      * @dev Updates an existing DID document
      * @param identity Address of the DID to update
      * @param docHash Updated hash of DID document
-     * @param didDocCid Updated CID of the DID document for storage
+     * @param docCid Updated CID of the DID document for storage
      */
-    function updateDid(address identity, bytes32 docHash, string calldata didDocCid) external;
+    function updateDid(address identity, bytes32 docHash, string calldata docCid) external;
 
     /**
      * @dev Updates a DID with off-chain signature
@@ -72,7 +72,7 @@ interface IDidRegistry {
      * @param sigR Part of EcDSA signature
      * @param sigS Part of EcDSA signature
      * @param docHash Updated hash of DID document
-     * @param didDocCid Updated CID of the DID document for storage
+     * @param docCid Updated CID of the DID document for storage
      */
     function updateDidSigned(
         address identity,
@@ -80,7 +80,7 @@ interface IDidRegistry {
         bytes32 sigR,
         bytes32 sigS,
         bytes32 docHash,
-        string calldata didDocCid
+        string calldata docCid
     ) external;
 
     /**
@@ -123,6 +123,19 @@ interface IDidRegistry {
      * @return isActive True if the DID is active
      */
     function didActive(address identity) external view returns (bool isActive);
+
+    /**
+    * @dev Validates a DID in a single call, returning all validation data at once
+    * @param identity The address to validate
+    * @return exists Whether the DID exists
+    * @return active Whether the DID is active (not deactivated)
+    * @return owner The owner of the DID
+    */
+    function validateDid(address identity) external view returns (
+        bool exists,
+        bool active,
+        address owner
+    );
 
     // /**
     //  * @dev Gets the current status of a DID

@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import { IRoleControl } from "../auth/IRoleControl.sol";
 import { Unauthorized } from "../auth/AuthErrors.sol";
 import { DidAlreadyExist, DidHasBeenDeactivated, DidNotFound, NotIdentityOwner, InvalidDidDocument } from "./DidErrors.sol";
-import { DidRecord, DidMetadata, DidStatus } from "./DidTypeNew.sol";
+import { DidRecord, DidMetadata, DidStatus } from "./DidType.sol";
 import { IDidRegistry } from "./IDidRegistry.sol";
 
 /**
@@ -91,11 +91,11 @@ contract DidRegistry is IDidRegistry {
         _roleControl = IRoleControl(roleControlContractAddress);
     }
 
-    // PUBLIC FUNCTIONS - IMPLEMENTATION OF INTERFACE
+    // EXTERNAL FUNCTIONS - IMPLEMENTATION OF INTERFACE
 
     /// @inheritdoc IDidRegistry
-    function createDid(address identity, bytes32 docHash, string calldata didDocCid) public override {
-        _createDid(identity, msg.sender, docHash, didDocCid);
+    function createDid(address identity, bytes32 docHash, string calldata docCid) external override {
+        _createDid(identity, msg.sender, docHash, docCid);
     }
 
     /// @inheritdoc IDidRegistry
@@ -105,23 +105,23 @@ contract DidRegistry is IDidRegistry {
         bytes32 sigR,
         bytes32 sigS,
         bytes32 docHash,
-        string calldata didDocCid
-    ) public override {
+        string calldata docCid
+    ) external override {
         // Recreate the signed message hash
         bytes32 hash = keccak256(
-            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "createDid", docHash, didDocCid)
+            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "createDid", docHash, docCid)
         );
 
         // Recover the signer from signature
         address signer = ecrecover(hash, sigV, sigR, sigS);
 
         // Call internal function with recovered signer
-        _createDid(identity, signer, docHash, didDocCid);
+        _createDid(identity, signer, docHash, docCid);
     }
 
     /// @inheritdoc IDidRegistry
-    function updateDid(address identity, bytes32 docHash, string calldata didDocCid) public override {
-        _updateDid(identity, msg.sender, docHash, didDocCid);
+    function updateDid(address identity, bytes32 docHash, string calldata docCid) external override {
+        _updateDid(identity, msg.sender, docHash, docCid);
     }
 
     /// @inheritdoc IDidRegistry
@@ -131,22 +131,22 @@ contract DidRegistry is IDidRegistry {
         bytes32 sigR,
         bytes32 sigS,
         bytes32 docHash,
-        string calldata didDocCid
-    ) public override {
+        string calldata docCid
+    ) external override {
         // Recreate the signed message hash
         bytes32 hash = keccak256(
-            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "updateDid", docHash, didDocCid)
+            abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "updateDid", docHash, docCid)
         );
 
         // Recover the signer from signature
         address signer = ecrecover(hash, sigV, sigR, sigS);
 
         // Call internal function with recovered signer
-        _updateDid(identity, signer, docHash, didDocCid);
+        _updateDid(identity, signer, docHash, docCid);
     }
 
     /// @inheritdoc IDidRegistry
-    function deactivateDid(address identity) public override {
+    function deactivateDid(address identity) external override {
         _deactivateDid(identity, msg.sender);
     }
 
@@ -156,7 +156,7 @@ contract DidRegistry is IDidRegistry {
         uint8 sigV,
         bytes32 sigR,
         bytes32 sigS
-    ) public override {
+    ) external override {
         // Recreate the signed message hash
         bytes32 hash = keccak256(
             abi.encodePacked(bytes1(0x19), bytes1(0), address(this), identity, "deactivateDid")
@@ -170,17 +170,17 @@ contract DidRegistry is IDidRegistry {
     }
 
     /// @inheritdoc IDidRegistry
-    function resolveDid(address identity) public view override _didExist(identity) _didIsActive(identity) returns (DidRecord memory didRecord) {
+    function resolveDid(address identity) external view override _didExist(identity) _didIsActive(identity) returns (DidRecord memory didRecord) {
         return _dids[identity];
     }
 
     /// @inheritdoc IDidRegistry
-    function didExists(address identity) public view override returns (bool exists) {
+    function didExists(address identity) external view override returns (bool exists) {
         return _dids[identity].metadata.created != 0;
     }
 
     /// @inheritdoc IDidRegistry
-    function didActive(address identity) public view override _didIsActive(identity) returns (bool isActive) {
+    function didActive(address identity) external view override _didIsActive(identity) returns (bool isActive) {
         return _dids[identity].metadata.status == DidStatus.ACTIVE;
     }
 
@@ -191,7 +191,36 @@ contract DidRegistry is IDidRegistry {
     // }
 
     /// @inheritdoc IDidRegistry
-    function validateDocumentHash(address identity, bytes32 hash) public view override _didExist(identity) returns (bool valid) {
+    function validateDid(address identity) external view returns (
+        bool exists,
+        bool active,
+        address owner
+    ) {
+        // Check if DID record exists by looking at the created timestamp
+        // This is more gas efficient than calling didExists() which would be a separate function call
+        bool doesExist = _dids[identity].metadata.created > 0;
+        
+        // If DID doesn't exist, return early with default values
+        if (!doesExist) {
+            return (false, false, address(0));
+        }
+        
+        // Access the DID record directly from storage
+        DidRecord storage record = _dids[identity];
+        
+        // Check if active (status is ACTIVE which is enum value 1)
+        bool isActive = record.metadata.status == DidStatus.ACTIVE;
+        
+        // Return all validation data at once
+        return (
+            true,                                // exists
+            isActive,                            // active status
+            record.metadata.owner                // owner address
+        );
+    }
+
+    /// @inheritdoc IDidRegistry
+    function validateDocumentHash(address identity, bytes32 hash) external view override _didExist(identity) returns (bool valid) {
         return _dids[identity].docHash == hash;
     }
 
@@ -202,13 +231,13 @@ contract DidRegistry is IDidRegistry {
      * @param identity Address of the DID
      * @param actor Address of the actor (sender or recovered signer)
      * @param docHash Hash of the DID document
-     * @param didDocCid CID of the DID document for storage
+     * @param docCid CID of the DID document for storage
      */
     function _createDid(
         address identity,
         address actor,
         bytes32 docHash,
-        string calldata didDocCid
+        string calldata docCid
     )
         internal
         _didNotExist(identity)
@@ -229,7 +258,7 @@ contract DidRegistry is IDidRegistry {
         _dids[identity].metadata.status = DidStatus.ACTIVE;
 
         // Emit event
-        emit DIDCreated(identity, docHash, didDocCid);
+        emit DIDCreated(identity, docHash, docCid);
     }
 
     /**
@@ -242,7 +271,7 @@ contract DidRegistry is IDidRegistry {
         address identity,
         address actor,
         bytes32 docHash,
-        string calldata didDocCid
+        string calldata docCid
     )
         internal
         _didExist(identity)
@@ -259,7 +288,7 @@ contract DidRegistry is IDidRegistry {
         _dids[identity].metadata.versionId = uint32(block.number);
 
         // Emit event with new version ID for tracking
-        emit DIDUpdated(identity, docHash, _dids[identity].metadata.versionId, didDocCid);
+        emit DIDUpdated(identity, docHash, _dids[identity].metadata.versionId, docCid);
     }
 
     /**

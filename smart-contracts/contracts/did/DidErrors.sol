@@ -47,13 +47,6 @@ error DidUpdateTooSoon(address identity, uint256 currentTime, uint256 earliestUp
 //--------------------------------------------------------------------------
 
 /**
- * @dev Error that occurs when the specified DID format is incorrect
- * @param did The malformed DID string
- * @param reason Brief explanation of what's wrong with the format
- */
-error IncorrectDidFormat(bytes32 did, string reason);
-
-/**
  * @dev Error that occurs when the DID document structure is invalid
  * @param reason Description of what validation failed
  */
