@@ -12,7 +12,7 @@ import { CredentialRecord, CredentialMetadata, CredentialStatus } from "./Creden
  * Ethereum's storage and gas cost constraints.
  * 
  * Key Design Principles:
- * - W3C VC Data Model v1.1 compliance
+ * - W3C VC Data Model v2.0 compliance
  * - Role-based access control (Trustee/Endorser/Steward)
  * - Gas-efficient operations with batch support
  * - Comprehensive credential lifecycle management
@@ -29,16 +29,12 @@ interface ICredentialRegistry {
      * @param credentialId keccak256 hash of the credential content
      * @param actor Address that issued the credential
      * @param identity Ethereum address of the holder
-     * @param issuerDid keccak256 hash of the issuer's DID
-     * @param holderDid keccak256 hash of the holder's DID
      * @param credentialCid Content Identifier (CID) pointing to the full credential data
      */
     event CredentialIssued(
         bytes32 indexed credentialId,
         address indexed actor,
         address indexed identity,
-        bytes32 issuerDid,
-        bytes32 holderDid,
         string credentialCid
     );
 
@@ -86,36 +82,13 @@ interface ICredentialRegistry {
         uint64 reactivatedAt
     );
 
-    // /**
-    //  * @dev Emitted when an issuer is registered in the registry
-    //  * @param issuerDid keccak256 hash of the issuer's DID
-    //  * @param issuerAddress Ethereum address associated with the issuer
-    //  * @param registeredBy Address that registered the issuer
-    //  */
-    // event IssuerRegistered(
-    //     bytes32 indexed issuerDid,
-    //     address indexed issuerAddress,
-    //     address indexed registeredBy
-    // );
-
-    // /**
-    //  * @dev Emitted when an issuer is deactivated
-    //  * @param issuerDid keccak256 hash of the issuer's DID
-    //  * @param deactivatedAt Unix timestamp of deactivation
-    //  * @param deactivatedBy Address that deactivated the issuer
-    //  */
-    // event IssuerDeactivated(
-    //     bytes32 indexed issuerDid,
-    //     uint256 deactivatedAt,
-    //     address indexed deactivatedBy
-    // );
-
     // // ========================================================================
     // // CORE CREDENTIAL MANAGEMENT FUNCTIONS
     // // ========================================================================
 
     /**
      * @dev Issues a new Verifiable Credential
+     * @notice Issues a new credential
      * 
      * Requirements:
      * - Caller must have TRUSTEE, ENDORSER, or STEWARD role
@@ -126,8 +99,8 @@ interface ICredentialRegistry {
      * - Expiration date must be after issuance date (if set)
      * 
      * @param identity Ethereum address of the holder
-     * @param credentialId keccak256 hash of the credential content
-     * @param credentialCid Content Identifier (CID) pointing to the full credential data
+     * @param credentialId The keccak256 hash of the credential
+     * @param credentialCid The content identifier (CID) pointing to the full credential data
      * 
      * Emits: CredentialIssued event
      * 
@@ -142,8 +115,6 @@ interface ICredentialRegistry {
     function issueCredential(
         address identity,
         bytes32 credentialId,
-        bytes32 issuerDid,
-        bytes32 holderDid,
         string calldata credentialCid
     ) external;
 
@@ -158,8 +129,6 @@ interface ICredentialRegistry {
      * @param sigR ECDSA signature part R
      * @param sigS ECDSA signature part S
      * @param credentialId keccak256 hash of the credential content
-     * @param issuerDid keccak256 hash of the issuer's DID
-     * @param holderDid keccak256 hash of the holder's DID
      * @param credentialCid Content Identifier (CID) pointing to the full credential data
      * 
      * Emits: CredentialIssued event
@@ -174,9 +143,44 @@ interface ICredentialRegistry {
         bytes32 sigR,
         bytes32 sigS,
         bytes32 credentialId,
-        bytes32 issuerDid,
-        bytes32 holderDid,
         string calldata credentialCid
+    ) external;
+
+    /**
+    * @notice Updates the status of a Verifiable Credential following W3C VC Data Model v1.1
+    * @dev Implements comprehensive status transitions with proper validation and authorization
+    * @dev This function follows the trust triangle approach requiring proper authorization
+    * 
+    * Requirements:
+    * - Credential must exist
+    * - Caller must have authorized role (TRUSTEE or ISSUER)
+    * - Actor must be a valid issuer
+    * - Actor must be the original issuer of the credential or have TRUSTEE privileges
+    * - Status transition must be valid according to W3C VC lifecycle
+    * - Previous status must match current status (optimistic concurrency control)
+    * 
+    * @param credentialId keccak256 hash of the credential to update
+    * @param previousStatus Expected current status (for optimistic concurrency control)
+    * @param newStatus Desired new status to set
+    * 
+    * @custom:security This function implements multiple layers of security:
+    * - Role-based access control via modifiers
+    * - Issuer validation and authorization
+    * - Optimistic concurrency control
+    * - Status transition validation
+    * 
+    * Emits: CredentialStatusUpdated event
+    * 
+    * Reverts with:
+    * - CredentialNotFound if credential doesn't exist
+    * - Unauthorized if caller lacks required role
+    * - IssuerNotAuthorized if actor lacks permission or issuer validation fails
+    * - InvalidStatusTransition if status change is not allowed or current status mismatch
+    */
+    function updateCredentialStatus(
+        bytes32 credentialId,
+        CredentialStatus previousStatus,
+        CredentialStatus newStatus
     ) external;
 
     /**
@@ -189,12 +193,13 @@ interface ICredentialRegistry {
      * 
      * Reverts with:
      * - CredentialNotFound if credential doesn't exist
-     */
-    // Note: This function is used to retrieve the credential data and metadata
-    // for display or verification purposes. It does not perform any validation.
+     *
+     * Note: This function is used to retrieve the credential data and metadata
+     * for display or verification purposes. It does not perform any validation.
+    */
     function resolveCredential(
         bytes32 credentialId
-    ) external returns (CredentialRecord memory credentialRecord);
+    ) external view returns (CredentialRecord memory credentialRecord);
 
     // /**
     //  * @dev Retrieves a Verifiable Credential by its hash
@@ -235,43 +240,6 @@ interface ICredentialRegistry {
     //         CredentialStatus status,
     //         string memory reason
     //     );
-
-    /**
-    * @notice Updates the status of a Verifiable Credential following W3C VC Data Model v1.1
-    * @dev Implements comprehensive status transitions with proper validation and authorization
-    * @dev This function follows the trust triangle approach requiring proper authorization
-    * 
-    * Requirements:
-    * - Credential must exist
-    * - Caller must have authorized role (TRUSTEE or ISSUER)
-    * - Actor must be a valid issuer
-    * - Actor must be the original issuer of the credential or have TRUSTEE privileges
-    * - Status transition must be valid according to W3C VC lifecycle
-    * - Previous status must match current status (optimistic concurrency control)
-    * 
-    * @param credentialId keccak256 hash of the credential to update
-    * @param previousStatus Expected current status (for optimistic concurrency control)
-    * @param newStatus Desired new status to set
-    * 
-    * @custom:security This function implements multiple layers of security:
-    * - Role-based access control via modifiers
-    * - Issuer validation and authorization
-    * - Optimistic concurrency control
-    * - Status transition validation
-    * 
-    * Emits: CredentialStatusUpdated event
-    * 
-    * Reverts with:
-    * - CredentialNotFound if credential doesn't exist
-    * - Unauthorized if caller lacks required role
-    * - IssuerNotAuthorized if actor lacks permission or issuer validation fails
-    * - InvalidStatusTransition if status change is not allowed or current status mismatch
-    */
-    function updateCredentialStatus(
-        bytes32 credentialId,
-        CredentialStatus previousStatus,
-        CredentialStatus newStatus
-    ) external;
 
     // // ========================================================================
     // // CREDENTIAL LIFECYCLE MANAGEMENT
@@ -327,55 +295,4 @@ interface ICredentialRegistry {
     //  * Emits: CredentialReactivated event
     //  */
     // function reactivateCredential(bytes32 credentialHash) external;
-
-    // // ========================================================================
-    // // ISSUER MANAGEMENT FUNCTIONS
-    // // ========================================================================
-
-    // /**
-    //  * @dev Registers a new credential issuer
-    //  * 
-    //  * Requirements:
-    //  * - Caller must have TRUSTEE role
-    //  * - Issuer must not already be registered
-    //  * 
-    //  * @param issuerDid keccak256 hash of the issuer's DID
-    //  * @param issuerAddress Ethereum address associated with the issuer
-    //  * 
-    //  * Emits: IssuerRegistered event
-    //  */
-    // function registerIssuer(
-    //     bytes32 issuerDid,
-    //     address issuerAddress
-    // ) external;
-
-    // /**
-    //  * @dev Deactivates a credential issuer
-    //  * 
-    //  * Requirements:
-    //  * - Caller must have TRUSTEE role
-    //  * - Issuer must be registered and currently active
-    //  * 
-    //  * @param issuerDid keccak256 hash of the issuer's DID
-    //  * 
-    //  * Emits: IssuerDeactivated event
-    //  */
-    // function deactivateIssuer(bytes32 issuerDid) external;
-
-    // /**
-    //  * @dev Checks if an issuer is registered and active
-    //  * 
-    //  * @param issuerDid keccak256 hash of the issuer's DID
-    //  * @return isRegistered True if issuer is registered
-    //  * @return isActive True if issuer is active
-    //  * @return issuerAddress Ethereum address associated with the issuer
-    //  */
-    // function getIssuerStatus(bytes32 issuerDid)
-    //     external
-    //     view
-    //     returns (
-    //         bool isRegistered,
-    //         bool isActive,
-    //         address issuerAddress
-    //     );
 }

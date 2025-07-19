@@ -61,6 +61,26 @@ error InvalidStatusTransition(bytes32 credentialHash, uint8 currentStatus, uint8
 // ============================================================================
 
 /**
+ * @notice Error thrown when an identity is not found or not registered
+ * @param identity The address of the DID that is not found
+ */
+error IdentityNotFound(address identity);
+
+/**
+ * @notice Error thrown when an identity's registration has been deactivated
+ * @param identity The address of the DID that has been deactivated
+ * @param reason The reason for the deactivated identity
+ */
+error IdentityHasBeenDeactivated(address identity, string reason);
+
+/**
+ * @notice Error thrown when attempting to issue a credential to an invalid identity
+ * @param identity The address of DID that is invalid 
+ * @param reason The reason for invalid identity
+ */
+error InvalidIdentity(address identity, string reason);
+
+/**
  * @notice Error thrown when an issuer is not found or not registered
  * @param identity The address of the DID that is not found
  */
@@ -151,3 +171,18 @@ error InvalidNonce(address account, uint256 providedNonce, uint256 expectedNonce
  * @param owner The actual owner of the credential
  */
 error NotCredentialOwner(bytes32 credentialHash, address caller, address owner);
+
+/**
+ * @notice Error thrown when an address is not the expected credential issuer
+ * @param caller The address that attempted the operation
+ * @param expectedIssuer The expected issuer address
+ */
+error NotCredentialIssuer(address caller, address expectedIssuer);
+
+/**
+ * @notice Error thrown when the issuer and holder addresses are identical
+ * @param issuer The address that attempted the operation
+ * @param holder The address that will be issued
+ * @param reason Description of what validation failed
+ */
+error IdenticalCallerAddress(address issuer, address holder, string reason);
