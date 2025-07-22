@@ -14,7 +14,7 @@
 NO_LOCK_REQUIRED=false
 
 . ../../.env
-source "$(dirname "$0")/geth-common.sh"
+source "$(dirname "$0")/common.sh"
 
 echo "*************************************"
 echo "Geth Localnet"

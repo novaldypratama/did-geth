@@ -11,15 +11,29 @@
 # an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
 # specific language governing permissions and limitations under the License.
 
-NO_LOCK_REQUIRED=false
+NO_LOCK_REQUIRED=true
 
 . ../../.env
-source "$(dirname "$0")/geth-common.sh"
+source "$(dirname "$0")/common.sh"
+
+# Build and run containers and network
+echo "docker-compose-geth.yml" >${LOCK_FILE}
 
 echo "*************************************"
 echo "Geth Localnet"
 echo "*************************************"
-echo "Stopping network"
-echo "----------------------------------"
+echo "Start network"
+echo "--------------------"
 
-docker compose -f $GETH_DOCKER_CONFIG stop
+echo "Starting network..."
+# Ensure bootnode keys directory exists
+mkdir -p ./network/config/geth/bootnode
+
+# Build and pull images
+docker compose -f $GETH_DOCKER_CONFIG build --pull
+
+echo "Starting containers..."
+docker compose -f $GETH_DOCKER_CONFIG up --detach
+
+#list services and endpoints
+./$(dirname "$0")/geth-list.sh

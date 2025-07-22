@@ -16,11 +16,10 @@ NO_LOCK_REQUIRED=false
 # shellcheck disable=SC1090
 source "$(dirname "${BASH_SOURCE[0]}")/../../.env"
 # shellcheck disable=SC1090
-source "$(dirname "${BASH_SOURCE[0]}")/geth-common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 readonly HOST="${DOCKER_PORT_2375_TCP_ADDR:-localhost}"
 readonly BOOTNODE_URL="http://${HOST}:30301"
-readonly GRAFANA_URL="http://${HOST}:3000/d/a1lVy7ycin9Yv/geth-overview?orgId=1&refresh=10s&from=now-30m&to=now&var-system=All"
 
 print_header() {
   echo "*************************************"
@@ -50,12 +49,6 @@ check_prometheus() {
   fi
 }
 
-check_grafana() {
-  if docker compose -f $GETH_DOCKER_CONFIG ps -q grafana &>/dev/null; then
-    echo "Grafana address                                : ${GRAFANA_URL}"
-  fi
-}
-
 print_footer() {
   echo
   echo "For more information on the endpoints and services, refer to README.md in the installation directory."
@@ -66,7 +59,6 @@ main() {
   print_header
   print_endpoints
   check_prometheus
-  check_grafana
   print_footer
 }
 

@@ -6,7 +6,7 @@ GETH_DOCKER_CONFIG=../../docker-compose.yml
 
 # checks that this script didn't run manually
 me=`basename "$0"`
-if [ "$me" = "geth-common.sh" ];then
+if [ "$me" = "common.sh" ];then
   echo >&2 "This script is not expected to be run separately."
   exit 1
 fi
@@ -50,7 +50,7 @@ fi
 if [ "${NO_LOCK_REQUIRED}" = "true" ];then
   if [ -f ${LOCK_FILE} ];then
     echo "Network already in use (${LOCK_FILE} present)." >&2
-    echo "Restart with ./geth-resume.sh or remove with ./geth-remove.sh before running again." >&2
+    echo "Restart with ./resume.sh or remove with ./remove.sh before running again." >&2
     exit 1
   fi
 else
@@ -60,7 +60,7 @@ else
     composeFile=`sed '1q;d' ${LOCK_FILE}`
   else
     echo "Network is not running (${LOCK_FILE} not present)." >&2
-    echo "Run it with ./geth-run.sh first" >&2
+    echo "Run it with ./run.sh first" >&2
     exit 1
   fi
 fi
