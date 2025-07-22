@@ -14,12 +14,12 @@ async function main() {
 
     // The address to which we want to assign the HOLDER role
     // Replace this with the actual address you want to assign the role to
-    const newHolderAddress = "0x8dd478dee59d3b7c16a2e34cb5d321ed23d2677d";
+    const newHolderAddress = "0x0886328869e4e1f401e1052a5f4aae8b45f42610";
     console.log("Assigning HOLDER role to:", newHolderAddress);
 
     // Load the deployed RoleControl contract
     // Replace this with your actual deployed contract address
-    const roleControlAddress = "0x1F2077A4Caa6a373A6bf628e30826Fd957C1b256";
+    const roleControlAddress = "0x1932c48b2bF8102Ba33B4A6B545C32236e342f34";
     console.log("RoleControl contract address:", roleControlAddress);
 
     // Get the contract instance
@@ -38,7 +38,7 @@ async function main() {
     // Set transaction options
     const txOptions = {
       gasLimit: 200000,
-      gasPrice: ethers.parseUnits("10", "gwei")
+      gasPrice: ethers.parseUnits("1", "gwei")
     };
 
     // Assign HOLDER role (role = 2 as per the enum ROLES in the contract)
@@ -60,6 +60,7 @@ async function main() {
     console.log("Address:", newHolderAddress);
     console.log("Assigned Role (enum value):", assignedRole.toString());
     console.log("Has HOLDER role:", hasRole);
+    console.log("----------------------------------");
 
     // Get current holder count
     const holderCount = await roleControl.getRoleCount(roleEnum);

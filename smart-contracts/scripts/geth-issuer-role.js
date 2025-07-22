@@ -2,30 +2,49 @@
 
 async function main() {
   try {
-    console.log("Starting role assignment process...");
+    console.log("Starting ISSUER role assignment process...");
 
     // Get signers (deployer has the TRUSTEE role by default)
     const [deployer] = await ethers.getSigners();
     console.log("Using admin account:", deployer.address);
 
+    // Display account balance
+    const balance = await ethers.provider.getBalance(deployer.address);
+    console.log("Admin balance:", ethers.formatEther(balance), "ETH");
+
     // The address to which we want to assign the ISSUER role
     // Replace this with the actual address you want to assign the role to
-    const newIssuerAddress = "0x2d501ff683a6dcb43b4b12cf334ea7a9692a9f1c";
+    const newIssuerAddress = "0xb30f304642de3fee4365ed5cd06ea2e69d3fd0ca";
     console.log("Assigning ISSUER role to:", newIssuerAddress);
 
     // Load the deployed RoleControl contract
     // Replace this with your actual deployed contract address
-    const roleControlAddress = "0x1F2077A4Caa6a373A6bf628e30826Fd957C1b256";
+    const roleControlAddress = "0x1932c48b2bF8102Ba33B4A6B545C32236e342f34";
     console.log("RoleControl contract address:", roleControlAddress);
 
     // Get the contract instance
     const RoleControl = await ethers.getContractFactory("RoleControl");
     const roleControl = RoleControl.attach(roleControlAddress);
 
+    // First check if the address already has any role
+    const currentRole = await roleControl.getRole(newIssuerAddress);
+    console.log("\nCurrent role:", currentRole.toString());
+
+    if (currentRole.toString() === "1") {
+      console.log("Address already has ISSUER role (1). No action needed.");
+      return;
+    }
+
+    // Set transaction options
+    const txOptions = {
+      gasLimit: 200000,
+      gasPrice: ethers.parseUnits("1", "gwei")
+    };
+
     // Assign ISSUER role (role = 1 as per the enum ROLES in the contract)
     console.log("\nAssigning ISSUER role...");
     const roleEnum = 1; // ISSUER role has index 1 in ROLES enum
-    const tx = await roleControl.assignRole(roleEnum, newIssuerAddress);
+    const tx = await roleControl.assignRole(roleEnum, newIssuerAddress, txOptions);
 
     // Wait for the transaction to be mined
     console.log("Transaction hash:", tx.hash);
@@ -39,14 +58,27 @@ async function main() {
 
     console.log("\n----- ROLE ASSIGNMENT RESULTS -----");
     console.log("Address:", newIssuerAddress);
-    console.log("Assigned Role (enum value):", assignedRole);
+    console.log("Assigned Role (enum value):", assignedRole.toString());
     console.log("Has ISSUER role:", hasRole);
+    console.log("----------------------------------");
+
+    // Get current issuer count
+    const issuerCount = await roleControl.getRoleCount(roleEnum);
+    console.log("Total ISSUER count:", issuerCount.toString());
     console.log("----------------------------------");
 
     if (hasRole) {
       console.log("✅ ISSUER role successfully assigned!");
     } else {
       console.log("❌ Role assignment failed!");
+    }
+
+    // Test if the address passes the isIssuer check
+    try {
+      await roleControl.isIssuer(newIssuerAddress);
+      console.log("✅ Address passes isIssuer() verification");
+    } catch (error) {
+      console.error("❌ Address fails isIssuer() verification:", error.message);
     }
 
   } catch (error) {

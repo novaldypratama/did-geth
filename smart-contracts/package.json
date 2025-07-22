@@ -11,6 +11,7 @@
   "license": "ISC",
   "packageManager": "pnpm@10.12.1",
   "devDependencies": {
+    "@digitalbazaar/ed25519-signature-2020": "^5.4.0",
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.9",
     "@nomicfoundation/hardhat-ethers": "^3.0.9",
     "@nomicfoundation/hardhat-ignition": "^0.15.11",
@@ -31,6 +32,7 @@
     "hardhat-gas-reporter": "^1.0.10",
     "json-canonicalize": "^1.1.0",
     "jsonld": "^8.3.3",
+    "jsonld-signatures": "^11.5.0",
     "keccak256": "^1.0.6",
     "multiformats": "^13.3.7",
     "solidity-coverage": "^0.8.16",
