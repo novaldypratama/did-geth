@@ -1,14 +1,13 @@
 x-geth-def: &geth-def
   restart: "on-failure"
-  image: ethereum/client-go:${GETH_VERSION:-v1.12.0}
+  image: ethereum/client-go:alltools-${GETH_VERSION:-v1.12.0}
   entrypoint:
     - /bin/sh
     - -c
     - |
-
       set -e
 
-      echo "=== $${GETH_NODE_NAME} Initialization (TOML-Compliant) ==="
+      echo "=== $${GETH_IDENTITY} Initialization (TOML-Compliant) ==="
       echo "Node Type: $${NODE_TYPE:-validator}"
       echo "Account: $${ACCOUNT_ADDRESS}"
       echo "TOML Config: /config/config.toml"
@@ -37,8 +36,72 @@ x-geth-def: &geth-def
           exit 1
         fi
         
-        # echo "✅ Bootnode ready: $${bootnode_enode}"
         echo "$${bootnode_enode}"
+      }
+
+      # Function to generate and share node enode
+      generate_node_enode() {
+        local node_key_file="/opt/geth/data/geth/nodekey"
+        local enode_file="/config/keys/$${GETH_IDENTITY}.enode"
+        
+        # Wait for geth to generate nodekey
+        local max_wait=60
+        local waited=0
+        echo "🔑 Waiting for nodekey generation..."
+
+        while [ ! -f "$${node_key_file}" ] && [ $${waited} -lt $${max_wait} ]; do
+          sleep 2
+          waited=$$((waited + 2))
+        done
+        
+        if [ -f "$${node_key_file}" ]; then
+          # Generate enode using actual nodekey
+          local node_ip=$$(hostname -i)
+          local public_key=$$(bootnode -nodekey "$${node_key_file}" -writeaddress 2>/dev/null || echo "")
+          
+          if [ ! -z "$${public_key}" ]; then
+            local node_enode="enode://$${public_key}@$${node_ip}:30303"
+            echo "$${node_enode}" > "$${enode_file}"
+            echo "✅ Node enode generated: $${node_enode}"
+            return 0
+          else
+            echo "❌ Failed to extract public key from nodekey"
+            return 1
+          fi
+        else
+          echo "❌ Nodekey not generated within $${max_wait}s"
+          return 1
+        fi
+      }
+
+      # Function to wait for peer enodes (for RPC node)
+      wait_for_peer_enodes() {
+        if [ "$${NODE_TYPE}" = "rpc" ]; then
+          echo "🔄 Waiting for validator enodes (non-blocking)..."
+          local max_wait=90  # Increased timeout
+          local waited=0
+          local min_validators=1  # Minimum required validators
+          
+          while [ $${waited} -lt $${max_wait} ]; do
+            local found_enodes=0
+            for validator in validator1 validator2 validator3 validator4; do
+              if [ -f "/config/keys/$${validator}.enode" ]; then
+                found_enodes=$$((found_enodes + 1))
+              fi
+            done
+            
+            if [ $${found_enodes} -ge $${min_validators} ]; then
+              return 0
+            fi
+            
+            echo "   Found $${found_enodes}/$${min_validators} validators, waiting... ($${waited}s/$${max_wait}s)"
+            sleep 10
+            waited=$$((waited + 10))
+          done
+          
+          echo "⚠️  Timeout waiting for validators, continuing with bootnode only"
+          echo "   (Validators will be discovered dynamically)"
+        fi
       }
 
       # Function to build dynamic bootnodes list
@@ -47,23 +110,35 @@ x-geth-def: &geth-def
         local bootnodes_list="$${bootnode_enode}"
         
         # Add additional bootnodes based on node hierarchy
-        case "$${GETH_NODE_NAME}" in
-          "validator1")
-            # Primary validator: Only bootnode for initial discovery
-            bootnodes_list="$${bootnode_enode}"
+        # Add available validator enodes (non-blocking)
+        case "$${NODE_TYPE}" in
+          "rpc")
+            # RPC node connects to available validators
+            local added_validators=0
+            for validator in validator1 validator2 validator3 validator4; do
+              local validator_enode_file="/config/keys/$${validator}.enode"
+              if [ -f "$${validator_enode_file}" ]; then
+                local validator_enode=$$(cat "$${validator_enode_file}")
+                if [ ! -z "$${validator_enode}" ]; then
+                  bootnodes_list="$${bootnodes_list},$${validator_enode}"
+                  added_validators=$$((added_validators + 1))
+                fi
+              fi
+            done
             ;;
-          "validator2"|"validator3"|"validator4")
-            # Secondary validators also connect to validator1
-            local validator1_enode="enode://8208a3f344695d44e9cf2c023683cbea7b9343e2f70a5e804bd2c93858e945f8f91439eef96a4ab6c47ff06637d6fbe6472f96de1655a1bee57ea896654f3a22@validator1:30303"
-            bootnodes_list="$${bootnodes_list},$${validator1_enode}"
-            ;;
-          "rpcnode")
-            # RPC node connects to multiple validators for redundancy
-            local validator1_enode="enode://8208a3f344695d44e9cf2c023683cbea7b9343e2f70a5e804bd2c93858e945f8f91439eef96a4ab6c47ff06637d6fbe6472f96de1655a1bee57ea896654f3a22@validator1:30303"
-            local validator2_enode="enode://b9050e002aa42464e6b07c811a1f9dfec01249af03f67b753e8415420649b184447bb2a784863ccbf327ad9e31aaba803464979dfe6a7facc669151a5fa6ad1b@validator2:30303"
-            local validator3_enode="enode://59cf0c623c582fa9b19bdf70fb6bade07f4ae32218dd4d1c7e2c7e65acf87da45cf2ab55d16d27360aafef17622c37c09db60d7680ebcc17b78867f4c05bcaa4@validator3:30303"
-            local validator4_enode="enode://2fd5b5b6ad529f55b71602026d1849d0036f06482368b5812fa793014195d3571b0840dbc4175617de2a12db8f1222c012420d471ae5c0d982118625cae58868@validator4:30303"
-            bootnodes_list="$${bootnodes_list},$${validator1_enode},$${validator2_enode},$${validator3_enode},$${validator4_enode}"
+          "validator")
+            # Validators connect to bootnode + other available validators
+            for other_validator in validator1 validator2 validator3 validator4; do
+              if [ "$${other_validator}" != "$${GETH_IDENTITY}" ]; then
+                local other_enode_file="/config/keys/$${other_validator}.enode"
+                if [ -f "$${other_enode_file}" ]; then
+                  local other_enode=$$(cat "$${other_enode_file}")
+                  if [ ! -z "$${other_enode}" ]; then
+                    bootnodes_list="$${bootnodes_list},$${other_enode}"
+                  fi
+                fi
+              fi
+            done
             ;;
         esac
         
@@ -109,6 +184,14 @@ x-geth-def: &geth-def
         else
           echo "⚠️  Private key file not found: $${PRIVATE_KEY_SOURCE}"
           echo "   Checking if account already exists in keystore..."
+
+          # Check if any keystore files exist
+          if ls /opt/geth/data/keystore/UTC--* >/dev/null 2>&1; then
+            echo "✅ Found existing keystore files"
+          else
+            echo "❌ No keystore files found - account import required"
+            exit 1
+          fi
         fi
 
         # Initialize genesis if needed (TOML DataDir is used automatically)
@@ -145,7 +228,7 @@ x-geth-def: &geth-def
         args="$${args} --bootnodes $${bootnodes_list}"
         
         # Network address translation (runtime-specific)
-        args="$${args} --nat=extip:$$(hostname -i)"
+        # args="$${args} --nat=extip:$$(hostname -i)"
 
         # ===================================================================
         # ACCOUNT MANAGEMENT (Cannot be set in TOML)
@@ -161,6 +244,7 @@ x-geth-def: &geth-def
         # ===================================================================
         
         args="$${args} --ipcdisable"
+        args="$${args} --authrpc.addr="" --authrpc.port=0" 
 
         case "$${NODE_TYPE:-validator}" in
           "validator")
@@ -168,31 +252,33 @@ x-geth-def: &geth-def
             if [ "$${MINING_ENABLED:-true}" = "true" ]; then
               args="$${args} --mine"
               args="$${args} --miner.etherbase 0x$${ACCOUNT_ADDRESS}"
-              args="$${args} --miner.gasprice $${MINER_GASPRICE:-0}"
             fi
             
             # Validator-specific: Disable peer discovery for private network
-            args="$${args} --nodiscover"
+            if [ "$${ENABLE_DISCOVERY:-true}" = "true" ]; then
+              args="$${args} --discovery.port=30303"
+            else
+              args="$${args} --nodiscover"
+            fi
             ;;
             
           "rpc")
-            # RPC node: No mining
-            # Mining disabled by omitting --mine flag
+            # RPC node: No mining; Mining disabled by omitting --mine flag
             
             # RPC-specific: Extended API modules (override TOML)
             args="$${args} --http.api admin,debug,web3,eth,txpool,net"
             args="$${args} --ws.api admin,debug,web3,eth,txpool,net"
+            args="$${args} --rpc.allow-unprotected-txs"
             
-            # RPC-specific: Disable peer discovery and allow unprotected txs
-            args="$${args} --nodiscover"
-            args="$${args} --txpool.nolocals"
+            # Enable discovery for better peer connectivity
+            args="$${args} --discovery.port=30303"
             ;;
         esac
         
         # ===================================================================
         # OPTIONAL RUNTIME ARGUMENTS
         # ===================================================================
-        
+
         # Logging level (can override TOML default)
         if [ -n "$${GETH_VERBOSITY}" ]; then
           args="$${args} --verbosity=$${GETH_VERBOSITY}"
@@ -211,7 +297,7 @@ x-geth-def: &geth-def
         echo "🔍 Validating configuration..."
         
         # Check required environment variables
-        local required_vars="GETH_NODE_NAME ACCOUNT_ADDRESS ACCOUNT_PASSWORD"
+        local required_vars="GETH_IDENTITY ACCOUNT_ADDRESS ACCOUNT_PASSWORD"
         for var in $${required_vars}; do
           eval "value=\$${var}"
           if [ -z "$${value}" ]; then
@@ -243,12 +329,9 @@ x-geth-def: &geth-def
         echo "=================================="
         echo "🚀 GETH NODE STARTUP (TOML-Mode)"
         echo "=================================="
-        echo "Node Name:       $${GETH_NODE_NAME}"
+        echo "Node Name:       $${GETH_IDENTITY}"
         echo "Node Type:       $${NODE_TYPE:-validator}"
         echo "Account:         $${ACCOUNT_ADDRESS}"
-        echo "Network ID:      (from TOML config file: "config.toml")"
-        echo "Data Directory:  (from TOML config file: "config.toml")"
-        echo "HTTP/WS Ports:   (from TOML config file: "config.toml")"
         echo "Mining:          $${MINING_ENABLED:-true}"
         echo "TOML Config:     /config/config.toml"
         echo "Genesis:         /config/genesis.json"
@@ -273,10 +356,15 @@ x-geth-def: &geth-def
       # Step 3: Show startup information  
       show_startup_info
 
-      # Step 4: Build minimal arguments (TOML does the heavy lifting)
+      # Step 4: FOR RPC NODES ONLY - Wait for some validators (non-blocking)
+      if [ "$${NODE_TYPE}" = "rpc" ]; then
+        wait_for_peer_enodes
+      fi
+
+      # Step 5: Build minimal arguments (TOML does the heavy lifting)
       GETH_ARGS=$$(build_geth_args)
 
-      # Step 5: Start Geth
+      # Step 6: Start Geth in background
       echo "🚀 Starting Geth with minimal arguments:"
       echo "geth $${GETH_ARGS}"
       echo ""
@@ -284,7 +372,17 @@ x-geth-def: &geth-def
       echo "=================================="
 
       # Execute Geth with TOML configuration + minimal runtime args
-      exec geth $${GETH_ARGS}
+      exec geth $${GETH_ARGS} &
+      GETH_PID=$$!
+
+      # Wait for startup and generate enode (FOR VALIDATORS)
+      if [ "$${NODE_TYPE}" = "validator" ]; then
+        sleep 15  # Give geth time to start and generate nodekey
+        generate_node_enode &
+      fi
+
+      # Wait for main process
+      wait $${GETH_PID}
 
 # x-web3signerProxy-def: &web3signerProxy-def
 #   image: consensys/web3signer:${WEB3SIGNER_VERSION:-latest}
@@ -303,7 +401,7 @@ x-geth-def: &geth-def
 
 services:
   bootnode:
-    image: ethereum/client-go:alltools-v1.13.13
+    image: ethereum/client-go:alltools-v1.12.0
     container_name: bootnode
     environment:
       # Bootnode Configuration
@@ -458,12 +556,12 @@ services:
     <<: *geth-def
     container_name: validator1
     environment:
-      - GETH_NODE_NAME=validator1
+      - GETH_IDENTITY=validator1
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=ed9d02e382b34818e88b88a309c7fe71e65f419d
       - ACCOUNT_PASSWORD=
       - MINING_ENABLED=true
-      - MINER_GASPRICE=0
+      - MINER_GASPRICE=1000000000
       - BOOTNODE_READY_TIMEOUT=60
       - GETH_VERBOSITY=3
       - OTEL_RESOURCE_ATTRIBUTES=service.name=validator1,service.version=${GETH_VERSION:-v1.12.0}
@@ -490,12 +588,12 @@ services:
     <<: *geth-def
     container_name: validator2
     environment:
-      - GETH_NODE_NAME=validator2
+      - GETH_IDENTITY=validator2
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=b30f304642de3fee4365ed5cd06ea2e69d3fd0ca
       - ACCOUNT_PASSWORD=
       - MINING_ENABLED=true
-      - MINER_GASPRICE=0
+      - MINER_GASPRICE=1000000000
       - BOOTNODE_READY_TIMEOUT=60
       - GETH_VERBOSITY=3
       - OTEL_RESOURCE_ATTRIBUTES=service.name=validator2,service.version=${GETH_VERSION:-v1.12.0}
@@ -523,12 +621,12 @@ services:
     <<: *geth-def
     container_name: validator3
     environment:
-      - GETH_NODE_NAME=validator3
+      - GETH_IDENTITY=validator3
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=0886328869e4e1f401e1052a5f4aae8b45f42610
       - ACCOUNT_PASSWORD=
       - MINING_ENABLED=true
-      - MINER_GASPRICE=0
+      - MINER_GASPRICE=1000000000
       - BOOTNODE_READY_TIMEOUT=60
       - GETH_VERBOSITY=3
       - OTEL_RESOURCE_ATTRIBUTES=service.name=validator3,service.version=${GETH_VERSION:-v1.12.0}
@@ -556,12 +654,12 @@ services:
     <<: *geth-def
     container_name: validator4
     environment:
-      - GETH_NODE_NAME=validator4
+      - GETH_IDENTITY=validator4
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=f48de4a0c2939e62891f3c6aca68982975477e45
       - ACCOUNT_PASSWORD=
       - MINING_ENABLED=true
-      - MINER_GASPRICE=0
+      - MINER_GASPRICE=1000000000
       - BOOTNODE_READY_TIMEOUT=60
       - GETH_VERBOSITY=3
       - OTEL_RESOURCE_ATTRIBUTES=service.name=validator4,service.version=${GETH_VERSION:-v1.13.13}
@@ -589,14 +687,13 @@ services:
     <<: *geth-def
     container_name: rpcnode
     environment:
-      - GETH_NODE_NAME=rpcnode
+      - GETH_IDENTITY=rpcnode
       - NODE_TYPE=rpc
       - ACCOUNT_ADDRESS=c9c913c8c3c1cd416d80a0abf475db2062f161f6
       - ACCOUNT_PASSWORD=
       - MINING_ENABLED=false
       - BOOTNODE_READY_TIMEOUT=60
       - GETH_VERBOSITY=3
-      - EXTRA_ARGS=--rpc.allow-unprotected-txs
       - OTEL_RESOURCE_ATTRIBUTES=service.name=rpcnode,service.version=${GETH_VERSION:-v1.12.0}
     labels:
       - "consensus=clique"
@@ -606,7 +703,6 @@ services:
       - ./network/config/geth/:/config
       - ./network/config/geth/bootnode:/config/keys
       - ./network/config/nodes/rpcnode:/opt/geth/data/keystore
-      - ./network/logs/geth:/var/log/geth
     ports:
       - 8545:8545/tcp
       - 8546:8546/tcp
@@ -614,10 +710,25 @@ services:
       - 30307:30303/udp
       - 9549:9545/tcp
     depends_on:
+      - bootnode
       - validator1
+      - validator2
     networks:
       ethnet:
         ipv4_address: 172.16.239.15
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "sh", 
+          "-c",
+          # First check if port is open, then try simple HTTP request
+          'netstat -tuln | grep -q ":8545" && (echo "GET /" | timeout 3 nc localhost 8545 >/dev/null 2>&1 || netstat -tuln | grep -q ":8545")'
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Longer start period for full initialization
 
   # web3signerProxy:
   #   <<: *web3signerProxy-def

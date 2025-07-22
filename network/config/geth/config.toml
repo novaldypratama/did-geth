@@ -4,16 +4,43 @@ SyncMode = "full"
 
 [Eth.Miner]
 # Minimum gas price accepted by the network (wei)
-GasPrice = 0
+GasPrice = 1
+GasFloor = 8000000
+GasCeil = 8000000
+Recommit = 5000000000
+NewPayloadTimeout = 2000000000
 
 [Eth.TxPool]
 NoLocals = false
-# Minimum gas price accepted in the tx pool (wei)
-PriceLimit = 0
+Journal = ""
+Rejournal = 3600000000000
+# Minimum gas price accepted in the tx pool (gwei)
+PriceLimit = 1                 # Allow zero gas price for private network
+PriceBump = 10                 # 10% price increase for replacement
+
+# Account limits optimized for SSI workloads
+AccountSlots = 32         # Higher limit for issuer accounts (vs default 16)
+GlobalSlots = 8192        # Increased global pool (vs default 4096)
+AccountQueue = 128        # Larger queue for pending transactions
+GlobalQueue = 2048        # Increased pending queue
+Lifetime = 10800000000000 # 3 hours (longer retention for large transactions)
+
+# Gas optimization for SSI operations
+[Eth.GPO]
+# Gas price oracle configuration
+Blocks = 1
+Percentile = 60
+MaxHeaderHistory = 1
+MaxBlockHistory = 1
+MaxPrice = 1000000000
+IgnorePrice = 2
 
 [Node]
 # Data directory
 DataDir = "/opt/geth/data"
+# Clique doesn't need Engine API
+AuthAddr = ""
+AuthPort = 0
 
 # Enable HTTP-RPC
 HTTPHost = "0.0.0.0"
@@ -23,15 +50,17 @@ HTTPCors = ["*"]
 # Allowed HTTP Host headers
 HTTPVirtualHosts = ["*"]
 # Enabled HTTP modules
-HTTPModules = ["eth", "net", "web3", "clique", "miner", "debug", "txpool"]
+HTTPModules = ["eth", "net", "clique", "miner", "debug", "txpool", "personal"]
 
 # Enable WebSockets
 WSHost = "0.0.0.0"
 WSPort = 8546
 # Enabled WS modules
-WSModules = ["eth", "net", "web3", "clique", "miner", "debug", "txpool"]
+WSModules = ["eth", "net", "clique", "miner", "debug", "txpool", "personal"]
+
 
 [Node.P2P]
 ListenAddr = ":30303"
 # Keep discovery enabled
 NoDiscovery = false
+MaxPeers = 10
