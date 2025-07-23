@@ -175,22 +175,6 @@ contract DidRegistry is IDidRegistry {
     }
 
     /// @inheritdoc IDidRegistry
-    function didExists(address identity) external view override returns (bool exists) {
-        return _dids[identity].metadata.created != 0;
-    }
-
-    /// @inheritdoc IDidRegistry
-    function didActive(address identity) external view override _didIsActive(identity) returns (bool isActive) {
-        return _dids[identity].metadata.status == DidStatus.ACTIVE;
-    }
-
-    // /// @inheritdoc IDidRegistry
-    // function getDidStatus(address identity) public view override returns (DidStatus status) {
-    //     if (!didExists(identity)) return DidStatus.NONE;
-    //     return _dids[identity].metadata.status;
-    // }
-
-    /// @inheritdoc IDidRegistry
     function validateDid(address identity) external view returns (
         bool exists,
         bool active,
@@ -251,11 +235,12 @@ contract DidRegistry is IDidRegistry {
         _dids[identity].docHash = docHash;
         
         // Set metadata fields in the most efficient order for storage packing
-        _dids[identity].metadata.owner = identity;
-        _dids[identity].metadata.created = uint64(block.timestamp);
-        _dids[identity].metadata.updated = uint64(block.timestamp);
-        _dids[identity].metadata.versionId = uint32(block.number);
-        _dids[identity].metadata.status = DidStatus.ACTIVE;
+        DidMetadata storage metadata = _dids[identity].metadata;
+        metadata.owner = identity;
+        metadata.created = uint64(block.timestamp);
+        metadata.updated = uint64(block.timestamp);
+        metadata.versionId = uint32(block.number);
+        metadata.status = DidStatus.ACTIVE;
 
         // Emit event
         emit DIDCreated(identity, docHash, docCid);
@@ -284,8 +269,11 @@ contract DidRegistry is IDidRegistry {
 
         // Update state variables
         _dids[identity].docHash = docHash;
-        _dids[identity].metadata.updated = uint64(block.timestamp);
-        _dids[identity].metadata.versionId = uint32(block.number);
+
+        // Update metadata fields - packing optimization occurs here
+        DidMetadata storage metadata = _dids[identity].metadata;
+        metadata.updated = uint64(block.timestamp);
+        metadata.versionId = uint32(block.number);
 
         // Emit event with new version ID for tracking
         emit DIDUpdated(identity, docHash, _dids[identity].metadata.versionId, docCid);
@@ -306,10 +294,11 @@ contract DidRegistry is IDidRegistry {
         _identityOwner(identity, actor)
         _senderIsIdentityOwnerOrTrustee(identity)
     {
-        // Update state variables
-        _dids[identity].metadata.status = DidStatus.DEACTIVATED;
-        _dids[identity].metadata.updated = uint64(block.timestamp);
-        _dids[identity].metadata.versionId = uint32(block.number);
+        // Update state variables - packing optimization occurs here
+        DidMetadata storage metadata = _dids[identity].metadata;
+        metadata.status = DidStatus.DEACTIVATED;
+        metadata.updated = uint64(block.timestamp);
+        metadata.versionId = uint32(block.number);
 
         // Emit event
         emit DIDDeactivated(identity);
