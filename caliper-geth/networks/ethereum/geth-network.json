@@ -1,0 +1,50 @@
+{
+  "caliper": {
+    "blockchain": "ethereum"
+  },
+  "ethereum": {
+    "url": "ws://localhost:8546",
+    "nodes": [
+      {
+        "url": "ws://localhost:8546"
+      },
+      {
+        "url": "ws://localhost:21001"
+      },
+      {
+        "url": "ws://localhost:21002"
+      }
+    ],
+    "contractDeployerAddresses": "0x06d06c366B213f716b51BCA6Dc1874aFc05467d0",
+    "contractDeployerAddressPrivateKeys": "0xb37a2494f2330ee4fdf516b38bad42b8e27e35e810abf1baf1fb51ad880872ed",
+    "fromAddress": "0x06d06c366b213f716b51bca6dc1874afc05467d0",
+    "fromAddressPrivateKey": "0xb37a2494f2330ee4fdf516b38bad42b8e27e35e810abf1baf1fb51ad880872ed",
+    "transactionConfirmationBlocks": 2,
+    "contracts": {
+      "RoleControl": {
+        "path": "../../benchmarks/contracts/RoleControl.json",
+        "gas": {
+          "assignRole": 200000,
+          "revokeRole": 100000
+        }
+      },
+      "DidRegistry": {
+        "path": "../../benchmarks/contracts/DidRegistry.json",
+        "gas": {
+          "createDid": 200000,
+          "updateDid": 100000,
+          "deactivateDid": 150000,
+          "resolveDid": 50000
+        }
+      },
+      "CredentialRegistry": {
+        "path": "../../benchmarks/contracts/CredentialRegistry.json",
+        "gas": {
+          "issueCredential": 250000,
+          "updateCredentialStatus": 100000,
+          "resolveCredential": 50000
+        }
+      }
+    }
+  }
+}
