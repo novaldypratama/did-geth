@@ -38,7 +38,7 @@ async function main() {
     console.log("\n💨 Step 3: Testing transaction capability...");
     try {
       const gasPrice = await ethers.provider.getFeeData();
-      console.log(`   Gas price: ${ethers.formatUnits(gasPrice.gasPrice || 1000000000n, "gwei")} gwei`);
+      console.log(`   Gas price: ${ethers.formatUnits(gasPrice.gasPrice || 10000000000n, "gwei")} gwei`);
 
       // Test gas estimation with simple transaction
       const simpleGas = await ethers.provider.estimateGas({
@@ -62,8 +62,8 @@ async function main() {
 
     // Use simple deployment parameters
     const deploymentOptions = {
-      gasLimit: 3000000,
-      gasPrice: ethers.parseUnits("2", "gwei")
+      gasLimit: 6500000,
+      gasPrice: ethers.parseUnits("1", "gwei")
     };
 
     console.log("   🚀 Deploying with options:", deploymentOptions);
@@ -111,6 +111,14 @@ async function main() {
 
     console.log(`   ✅ DidRegistry deployed at: ${didRegistryAddress}`);
 
+    // Get deployment receipt for cost analysis
+    const didReceipt = await didRegistry.deploymentTransaction().wait();
+    const didActualGas = didReceipt.gasUsed;
+    const didActualCost = didActualGas * deploymentOptions.gasPrice;
+
+    console.log(`   📊 Gas used: ${didActualGas} (${((Number(didActualGas) / deploymentOptions.gasLimit) * 100).toFixed(1)}% of limit)`);
+    console.log(`   💰 Cost: ${ethers.formatEther(didActualCost)} ETH`);
+
     // Step 7: Deploy CredentialRegistry
     console.log("\n🏆 Step 7: Deploying CredentialRegistry...");
     const CredentialRegistry = await ethers.getContractFactory("CredentialRegistry");
@@ -130,6 +138,14 @@ async function main() {
     const credentialRegistryAddress = await credentialRegistry.getAddress();
 
     console.log(`   ✅ CredentialRegistry deployed at: ${credentialRegistryAddress}`);
+
+    // Get deployment receipt for cost analysis
+    const credReceipt = await credentialRegistry.deploymentTransaction().wait();
+    const credActualGas = credReceipt.gasUsed;
+    const credActualCost = credActualGas * deploymentOptions.gasPrice;
+
+    console.log(`   📊 Gas used: ${credActualGas} (${((Number(credActualGas) / deploymentOptions.gasLimit) * 100).toFixed(1)}% of limit)`);
+    console.log(`   💰 Cost: ${ethers.formatEther(credActualCost)} ETH`);
 
     // Step 8: Final verification
     console.log("\n🔍 Step 8: Final verification...");
@@ -152,6 +168,19 @@ async function main() {
     // Step 9: Save deployment info
     console.log("\n💾 Step 9: Saving deployment information...");
 
+    // Calculate total gas usage and costs
+    const totalGasUsed = actualGas + didActualGas + credActualGas;
+    const totalCost = actualCost + didActualCost + credActualCost;
+
+    console.log("\n⛽ Gas Usage Summary:");
+    console.log("=".repeat(50));
+    console.log(`   RoleControl:        ${actualGas.toLocaleString()} gas (${ethers.formatEther(actualCost)} ETH)`);
+    console.log(`   DidRegistry:        ${didActualGas.toLocaleString()} gas (${ethers.formatEther(didActualCost)} ETH)`);
+    console.log(`   CredentialRegistry: ${credActualGas.toLocaleString()} gas (${ethers.formatEther(credActualCost)} ETH)`);
+    console.log("   " + "-".repeat(46));
+    console.log(`   TOTAL:              ${totalGasUsed.toLocaleString()} gas (${ethers.formatEther(totalCost)} ETH)`);
+    console.log("=".repeat(50));
+
     const deploymentInfo = {
       network: {
         name: network.name || 'localhost',
@@ -166,7 +195,26 @@ async function main() {
       deployment: {
         timestamp: new Date().toISOString(),
         gasPrice: ethers.formatUnits(deploymentOptions.gasPrice, "gwei") + " gwei",
-        totalContracts: Object.keys(contracts).length
+        totalContracts: Object.keys(contracts).length,
+        gasUsage: {
+          RoleControl: {
+            gasUsed: actualGas.toString(),
+            cost: ethers.formatEther(actualCost) + " ETH"
+          },
+          DidRegistry: {
+            gasUsed: didActualGas.toString(),
+            cost: ethers.formatEther(didActualCost) + " ETH"
+          },
+          CredentialRegistry: {
+            gasUsed: credActualGas.toString(),
+            cost: ethers.formatEther(credActualCost) + " ETH"
+          },
+          total: {
+            gasUsed: totalGasUsed.toString(),
+            cost: ethers.formatEther(totalCost) + " ETH",
+            gasEfficiency: `${((Number(totalGasUsed) / (deploymentOptions.gasLimit * 3)) * 100).toFixed(1)}% of total limit`
+          }
+        }
       }
     };
 
