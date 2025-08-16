@@ -4,7 +4,7 @@ SyncMode = "full"
 
 [Eth.Miner]
 # Minimum gas price accepted by the network (wei)
-GasPrice = 1
+GasPrice = 1000000000
 GasFloor = 10000000
 GasCeil = 12000000
 Recommit = 3000000000
@@ -15,8 +15,8 @@ NoLocals = false
 Journal = ""
 Rejournal = 3600000000000
 # Minimum gas price accepted in the tx pool (gwei)
-PriceLimit = 1                 # Allow zero gas price for private network
-PriceBump = 5                 # 5% price increase for replacement
+PriceLimit = 1                  # Allow zero gas price for private network
+PriceBump = 5                   # 5% price increase for replacement
 
 # Account limits optimized for SSI workloads
 AccountSlots = 64         # Higher limit for issuer accounts (vs default 16)
@@ -32,7 +32,7 @@ Blocks = 5
 Percentile = 50
 MaxHeaderHistory = 5
 MaxBlockHistory = 5
-MaxPrice = 1000000000
+MaxPrice = 2000000000
 IgnorePrice = 1
 
 [Node]

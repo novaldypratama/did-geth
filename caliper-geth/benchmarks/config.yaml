@@ -2,156 +2,245 @@
 
 # Common SSI benchmark arguments with optimized gas settings
 ssiArgs: &ssi-args
-  # didPrefix: "did:besu:"
-  # issuerCount: 4
-  # holderCount: 8
-  # verifierCount: 2
-  gasLimit: 12000000
+  gasLimit: 6500000
+  gasPrice: 1000000000
   web3signerUrl: "http://127.0.0.1:18545"
   besuEndpoint: "ws://172.16.239.15:8546"
   chainId: 1337
-  blockTime: 3  # 3-second block time
+  blockTime: 3 # 3-second block time
+  transactionDelayMs: 2500 # Add delay between transactions to prevent network congestion
+
+  # CRITICAL: Contract addresses must match deployed contracts
   contractAddresses:
     RoleControl: "0x1932c48b2bF8102Ba33B4A6B545C32236e342f34"
-    DIDRegistry: "0x1349F3e1B8D71eFfb47B840594Ff27dA7E603d17"
+    DidRegistry: "0x1349F3e1B8D71eFfb47B840594Ff27dA7E603d17"
     CredentialRegistry: "0x9d13C6D3aFE1721BEef56B55D303B09E021E27ab"
+
+  # Enhanced gas configuration with safety margins
   gasConfig:
-    # Deployment gas limits (with safety margin)
-    deployRoleControl: 1400000
-    deployDidRegistry: 2400000
-    deployCredentialRegistry: 2400000
-    # Function call gas limits (with 20% safety margin)
-    assignRole: 105000
-    revokeRole: 70000
-    createDid: 150000
-    updateDid: 60000
-    deactivateDid: 150000
-    resolveDid: 100000
-    issueCredential: 135000
-    updateCredentialStatus: 65000
-    resolveCredential: 100000
-  performanceTargets:
-    maxBlockUtilization: 0.8  # 80% max block usage
-    targetTPS: 10            # Target transactions per second
-    maxTPS: 20              # Peak capacity
+    # Role Control operations
+    RoleControl:
+      assignRole: 110000 # Increased for authorization checks
+      revokeRole: 70000
+      getRole: 20000 # Read operations need more gas for complex contracts
+      hasRole: 20000
+      getRoleCount: 30000
+
+    # DID Registry operations
+    DidRegistry:
+      createDid: 150000 # Increased for cross-contract validation
+      updateDid: 80000
+      deactivateDid: 50000
+      resolveDid: 20000
+      validateDid: 20000
+
+    # Credential Registry operations
+    CredentialRegistry:
+      issueCredential: 150000 # Highest gas for complex credential logic
+      updateCredentialStatus: 100000
+      resolveCredential: 20000
 
 # Test configuration with graduated load testing
 test:
-  name: SSI/DID Management System Performance Benchmark on Optimized Geth
+  name: SSI/DID Management System Performance Benchmark on Optimized Besu
   description: >
-    Comprehensive benchmark of SSI operations on Geth CLIQUE PoA network.
+    Comprehensive benchmark of SSI operations on Besu CLIQUE PoA network.
     Tests various DID and Verifiable Credential operations with optimized gas configuration.
     Block time: 3 seconds, Gas limit: 12M, Target utilization: 80%
   workers:
-    number: 2
+    number: 1
   rounds:
     # Phase 1: Role Management (Low Load)
-    - label: RoleAssignment_LowLoad
+    - label: Role_Assignment_Low
       description: Assign roles to entities in the network (baseline test)
-      txNumber: 20
+      txNumber: 25
       rateControl:
         type: fixed-rate
         opts:
-          tps: 3  # Conservative start
+          tps: 5 # Conservative start (reduced from 20 to prevent overloading)
       workload:
-        module: workload/assignRole.js
-        arguments: 
+        module: workloads/auth/simplifiedAssignRole.js
+        arguments:
           <<: *ssi-args
           operationType: "assignRole"
-          
-    # Phase 2: DID Creation (Medium Load)  
-    - label: DIDCreation_MediumLoad
+
+    # Phase 2: DID Creation (Low Load)
+    - label: DID_Creation_Low
       description: Create DID documents for issuers and holders
-      txNumber: 40
+      txNumber: 25
       rateControl:
         type: fixed-rate
         opts:
-          tps: 6  # ~50% block utilization
+          tps: 5 # Reduced rate for complex DID operations
       workload:
-        module: workload/createDid.js
+        module: workloads/did/simplifiedCreateDid.js
         arguments:
           <<: *ssi-args
           operationType: "createDid"
-          
-    # Phase 3: Credential Issuance (High Load)
-    - label: CredentialIssuance_HighLoad  
+
+    # Phase 3: Credential Issuance (Low Load)
+    - label: Credential_Issuance_Low
       description: Issue verifiable credentials at high throughput
-      txNumber: 60
+      txNumber: 25
       rateControl:
         type: fixed-rate
         opts:
-          tps: 8  # ~65% block utilization
+          tps: 5  # ~65% block utilization
       workload:
-        module: workload/issueCredential.js
+        module: workloads/vc/simplifiedIssueCredential.js
         arguments:
           <<: *ssi-args
           operationType: "issueCredential"
-          
-    # Phase 4: Mixed Operations (Peak Load)
-    - label: MixedOperations_PeakLoad
-      description: Mixed SSI operations at peak capacity
+
+    # Phase 4: Role Management (Medium Load)
+    - label: Role_Assignment_Medium
+      description: Assign roles to entities in the network (baseline test)
+      txNumber: 50
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10 # Conservative start (reduced from 20 to prevent overloading)
+      workload:
+        module: workloads/auth/simplifiedAssignRole.js
+        arguments:
+          <<: *ssi-args
+          operationType: "assignRole"
+
+    # Phase 5: DID Creation (Medium Load)
+    - label: DID_Creation_Medium
+      description: Create DID documents for issuers and holders
+      txNumber: 50
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10 # Reduced rate for complex DID operations
+      workload:
+        module: workloads/did/simplifiedCreateDid.js
+        arguments:
+          <<: *ssi-args
+          operationType: "createDid"
+
+    # Phase 6: Credential Issuance (Medium Load)
+    - label: Credential_Issuance_Medium
+      description: Issue verifiable credentials at high throughput
+      txNumber: 50
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10  # ~65% block utilization
+      workload:
+        module: workloads/vc/simplifiedIssueCredential.js
+        arguments:
+          <<: *ssi-args
+          operationType: "issueCredential"
+    
+    # Phase 7: Role Management (High Load)
+    - label: Role_Assignment_High
+      description: Assign roles to entities in the network (baseline test)
       txNumber: 100
       rateControl:
         type: fixed-rate
         opts:
-          tps: 10  # ~80% block utilization target
+          tps: 20 # Conservative start (reduced from 20 to prevent overloading)
       workload:
-        module: workload/mixedSSIOperations.js
+        module: workloads/auth/simplifiedAssignRole.js
         arguments:
           <<: *ssi-args
-          operationType: "mixed"
-          operations:
-            - name: "createDid"
-              weight: 30
-              gasLimit: 145000
-            - name: "issueCredential" 
-              weight: 40
-              gasLimit: 135000
-            - name: "updateCredentialStatus"
-              weight: 20
-              gasLimit: 65000
-            - name: "resolveCredential"
-              weight: 10
-              gasLimit: 100000
-              
-    # Phase 5: Stress Test (Maximum Load)
-    - label: StressTest_MaxLoad
-      description: Maximum sustainable load test
-      txNumber: 200
+          operationType: "assignRole"
+
+    # Phase 8: DID Creation (High Load)
+    - label: DID_Creation_High
+      description: Create DID documents for issuers and holders
+      txNumber: 100
       rateControl:
         type: fixed-rate
         opts:
-          tps: 15  # Testing maximum capacity
+          tps: 20 # Reduced rate for complex DID operations
       workload:
-        module: workload/stressTest.js
+        module: workloads/did/simplifiedCreateDid.js
         arguments:
           <<: *ssi-args
-          operationType: "stress"
-          maxRetries: 3
-          retryDelay: 5000
-          
-    # Phase 6: Long Duration Test
-    - label: Endurance_Test
-      description: Long-duration stability test
-      duration: 300  # 5 minutes
+          operationType: "createDid"
+
+    # Phase 9: Credential Issuance (High Load)
+    - label: Credential_Issuance_High
+      description: Issue verifiable credentials at high throughput
+      txNumber: 100
       rateControl:
         type: fixed-rate
         opts:
-          tps: 8  # Sustainable load
+          tps: 20  # ~65% block utilization
       workload:
-        module: workload/enduranceTest.js
+        module: workloads/vc/simplifiedIssueCredential.js
         arguments:
           <<: *ssi-args
-          operationType: "endurance"
+          operationType: "issueCredential"
+
+    # # Phase 4: Mixed Operations (Peak Load)
+    # - label: MixedOperations_PeakLoad
+    #   description: Mixed SSI operations at peak capacity
+    #   txNumber: 100
+    #   rateControl:
+    #     type: fixed-rate
+    #     opts:
+    #       tps: 10  # ~80% block utilization target
+    #   workload:
+    #     module: workload/mixedSSIOperations.js
+    #     arguments:
+    #       <<: *ssi-args
+    #       operationType: "mixed"
+    #       operations:
+    #         - name: "createDid"
+    #           weight: 30
+    #           gasLimit: 145000
+    #         - name: "issueCredential"
+    #           weight: 40
+    #           gasLimit: 135000
+    #         - name: "updateCredentialStatus"
+    #           weight: 20
+    #           gasLimit: 65000
+    #         - name: "resolveCredential"
+    #           weight: 10
+    #           gasLimit: 100000
+
+    # # Phase 5: Stress Test (Maximum Load)
+    # - label: StressTest_MaxLoad
+    #   description: Maximum sustainable load test
+    #   txNumber: 200
+    #   rateControl:
+    #     type: fixed-rate
+    #     opts:
+    #       tps: 15  # Testing maximum capacity
+    #   workload:
+    #     module: workload/stressTest.js
+    #     arguments:
+    #       <<: *ssi-args
+    #       operationType: "stress"
+    #       maxRetries: 3
+    #       retryDelay: 5000
+
+    # # Phase 6: Long Duration Test
+    # - label: Endurance_Test
+    #   description: Long-duration stability test
+    #   duration: 300  # 5 minutes
+    #   rateControl:
+    #     type: fixed-rate
+    #     opts:
+    #       tps: 8  # Sustainable load
+    #   workload:
+    #     module: workload/enduranceTest.js
+    #     arguments:
+    #       <<: *ssi-args
+    #       operationType: "endurance"
 
 # Monitor configuration for performance tracking
 monitors:
-  - none  # Disable built-in monitors, use custom monitoring
-  
-# Resource monitoring configuration  
+  - none # Disable built-in monitors, use custom monitoring
+
+# Resource monitoring configuration
 observer:
   type: local
-  interval: 2  # 2-second intervals to match block time
+  interval: 5 # 5-second intervals to match block time
 
 # # Custom performance thresholds
 # performance:

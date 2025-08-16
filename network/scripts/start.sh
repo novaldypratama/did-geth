@@ -36,4 +36,4 @@ echo "Starting containers..."
 docker compose -f $GETH_DOCKER_CONFIG up --detach
 
 #list services and endpoints
-./$(dirname "$0")/geth-list.sh
+./$(dirname "$0")/list.sh
