@@ -17,10 +17,10 @@ async function main() {
     const blockNumber = await web3.eth.getBlockNumber();
     console.log(`Current block number: ${blockNumber}`);
 
-    console.log('Besu node is ready for benchmarking!');
+    console.log('Geth node is ready for benchmarking!');
     process.exit(0);
   } catch (error) {
-    console.error('Error checking Besu node:', error.message);
+    console.error('Error checking Geth node:', error.message);
     process.exit(1);
   }
 }
