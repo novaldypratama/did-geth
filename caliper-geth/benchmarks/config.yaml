@@ -59,7 +59,7 @@ test:
         opts:
           tps: 5 # Conservative start (reduced from 20 to prevent overloading)
       workload:
-        module: workloads/auth/simplifiedAssignRole.js
+        module: workloads/auth/AssignRole.js
         arguments:
           <<: *ssi-args
           operationType: "assignRole"
@@ -67,13 +67,13 @@ test:
     # Phase 2: DID Creation (Low Load)
     - label: DID_Creation_Low
       description: Create DID documents for issuers and holders
-      txNumber: 25
+      txNumber: 24
       rateControl:
         type: fixed-rate
         opts:
           tps: 5 # Reduced rate for complex DID operations
       workload:
-        module: workloads/did/simplifiedCreateDid.js
+        module: workloads/did/CreateDid.js
         arguments:
           <<: *ssi-args
           operationType: "createDid"
@@ -81,13 +81,13 @@ test:
     # Phase 3: Credential Issuance (Low Load)
     - label: Credential_Issuance_Low
       description: Issue verifiable credentials at high throughput
-      txNumber: 25
+      txNumber: 24
       rateControl:
         type: fixed-rate
         opts:
-          tps: 5  # ~65% block utilization
+          tps: 5 # ~65% block utilization
       workload:
-        module: workloads/vc/simplifiedIssueCredential.js
+        module: workloads/vc/IssueCredential.js
         arguments:
           <<: *ssi-args
           operationType: "issueCredential"
@@ -101,7 +101,7 @@ test:
         opts:
           tps: 10 # Conservative start (reduced from 20 to prevent overloading)
       workload:
-        module: workloads/auth/simplifiedAssignRole.js
+        module: workloads/auth/AssignRole.js
         arguments:
           <<: *ssi-args
           operationType: "assignRole"
@@ -109,13 +109,13 @@ test:
     # Phase 5: DID Creation (Medium Load)
     - label: DID_Creation_Medium
       description: Create DID documents for issuers and holders
-      txNumber: 50
+      txNumber: 49
       rateControl:
         type: fixed-rate
         opts:
           tps: 10 # Reduced rate for complex DID operations
       workload:
-        module: workloads/did/simplifiedCreateDid.js
+        module: workloads/did/CreateDid.js
         arguments:
           <<: *ssi-args
           operationType: "createDid"
@@ -123,17 +123,17 @@ test:
     # Phase 6: Credential Issuance (Medium Load)
     - label: Credential_Issuance_Medium
       description: Issue verifiable credentials at high throughput
-      txNumber: 50
+      txNumber: 49
       rateControl:
         type: fixed-rate
         opts:
-          tps: 10  # ~65% block utilization
+          tps: 10 # ~65% block utilization
       workload:
-        module: workloads/vc/simplifiedIssueCredential.js
+        module: workloads/vc/IssueCredential.js
         arguments:
           <<: *ssi-args
           operationType: "issueCredential"
-    
+
     # Phase 7: Role Management (High Load)
     - label: Role_Assignment_High
       description: Assign roles to entities in the network (baseline test)
@@ -143,7 +143,7 @@ test:
         opts:
           tps: 20 # Conservative start (reduced from 20 to prevent overloading)
       workload:
-        module: workloads/auth/simplifiedAssignRole.js
+        module: workloads/auth/AssignRole.js
         arguments:
           <<: *ssi-args
           operationType: "assignRole"
@@ -151,13 +151,13 @@ test:
     # Phase 8: DID Creation (High Load)
     - label: DID_Creation_High
       description: Create DID documents for issuers and holders
-      txNumber: 100
+      txNumber: 99
       rateControl:
         type: fixed-rate
         opts:
           tps: 20 # Reduced rate for complex DID operations
       workload:
-        module: workloads/did/simplifiedCreateDid.js
+        module: workloads/did/CreateDid.js
         arguments:
           <<: *ssi-args
           operationType: "createDid"
@@ -165,13 +165,13 @@ test:
     # Phase 9: Credential Issuance (High Load)
     - label: Credential_Issuance_High
       description: Issue verifiable credentials at high throughput
-      txNumber: 100
+      txNumber: 99
       rateControl:
         type: fixed-rate
         opts:
-          tps: 20  # ~65% block utilization
+          tps: 20 # ~65% block utilization
       workload:
-        module: workloads/vc/simplifiedIssueCredential.js
+        module: workloads/vc/IssueCredential.js
         arguments:
           <<: *ssi-args
           operationType: "issueCredential"
@@ -247,3 +247,4 @@ observer:
 #   success_rate: 0.99      # 99% success rate minimum
 #   max_latency: 10000      # 10 second max latency
 #   avg_latency: 3000       # 3 second average latency target
+
