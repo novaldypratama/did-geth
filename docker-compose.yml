@@ -1,388 +1,73 @@
 x-geth-def: &geth-def
-  restart: "on-failure"
-  image: ethereum/client-go:alltools-${GETH_VERSION:-v1.12.0}
+  image: ethereum/client-go:${GETH_VERSION:-v1.12.0}  # Pin to <1.14 with Clique support
+  restart: on-failure
   entrypoint:
     - /bin/sh
     - -c
     - |
       set -e
-
-      echo "=== $${GETH_IDENTITY} Initialization (TOML-Compliant) ==="
+      
+      echo "=== Initializing $${GETH_IDENTITY} ($${NODE_TYPE}) ==="
       echo "Node Type: $${NODE_TYPE:-validator}"
       echo "Account: $${ACCOUNT_ADDRESS}"
       echo "TOML Config: /config/config.toml"
-
-      # Function to wait for bootnode enode
-      wait_for_bootnode() {
-        local bootnode_enode_file="/config/keys/bootnode.enode"
-        local timeout=$${BOOTNODE_READY_TIMEOUT:-60}
-        local waited=0
-        
-        # echo "⏳ Waiting for bootnode enode..."
-        while [ ! -f "$${bootnode_enode_file}" ] && [ $${waited} -lt $${timeout} ]; do
-          echo "   Bootnode discovery... ($${waited}s/$${timeout}s)"
-          sleep 5
-          waited=$$((waited + 5))
-        done
-        
-        if [ ! -f "$${bootnode_enode_file}" ]; then
-          echo "❌ Bootnode enode unavailable after $${timeout}s"
-          exit 1
-        fi
-        
-        local bootnode_enode=$$(cat "$${bootnode_enode_file}")
-        if [ -z "$${bootnode_enode}" ]; then
-          echo "❌ Empty bootnode enode file"
-          exit 1
-        fi
-        
-        echo "$${bootnode_enode}"
-      }
-
-      # Function to generate and share node enode
-      generate_node_enode() {
-        local node_key_file="/opt/geth/data/geth/nodekey"
-        local enode_file="/config/keys/$${GETH_IDENTITY}.enode"
-        
-        # Wait for geth to generate nodekey
-        local max_wait=60
-        local waited=0
-        echo "🔑 Waiting for nodekey generation..."
-
-        while [ ! -f "$${node_key_file}" ] && [ $${waited} -lt $${max_wait} ]; do
-          sleep 2
-          waited=$$((waited + 2))
-        done
-        
-        if [ -f "$${node_key_file}" ]; then
-          # Generate enode using actual nodekey
-          local node_ip=$$(hostname -i)
-          local public_key=$$(bootnode -nodekey "$${node_key_file}" -writeaddress 2>/dev/null || echo "")
-          
-          if [ ! -z "$${public_key}" ]; then
-            local node_enode="enode://$${public_key}@$${node_ip}:30303"
-            echo "$${node_enode}" > "$${enode_file}"
-            echo "✅ Node enode generated: $${node_enode}"
-            return 0
-          else
-            echo "❌ Failed to extract public key from nodekey"
-            return 1
-          fi
-        else
-          echo "❌ Nodekey not generated within $${max_wait}s"
-          return 1
-        fi
-      }
-
-      # Function to wait for peer enodes (for RPC node)
-      wait_for_peer_enodes() {
-        if [ "$${NODE_TYPE}" = "rpc" ]; then
-          echo "🔄 Waiting for validator enodes (non-blocking)..."
-          local max_wait=90  # Increased timeout
-          local waited=0
-          local min_validators=1  # Minimum required validators
-          
-          while [ $${waited} -lt $${max_wait} ]; do
-            local found_enodes=0
-            for validator in validator1 validator2 validator3 validator4; do
-              if [ -f "/config/keys/$${validator}.enode" ]; then
-                found_enodes=$$((found_enodes + 1))
-              fi
-            done
-            
-            if [ $${found_enodes} -ge $${min_validators} ]; then
-              return 0
-            fi
-            
-            echo "   Found $${found_enodes}/$${min_validators} validators, waiting... ($${waited}s/$${max_wait}s)"
-            sleep 10
-            waited=$$((waited + 10))
-          done
-          
-          echo "⚠️  Timeout waiting for validators, continuing with bootnode only"
-          echo "   (Validators will be discovered dynamically)"
-        fi
-      }
-
-      # Function to build dynamic bootnodes list
-      build_bootnodes_list() {
-        local bootnode_enode=$$(wait_for_bootnode)
-        local bootnodes_list="$${bootnode_enode}"
-        
-        # Add additional bootnodes based on node hierarchy
-        # Add available validator enodes (non-blocking)
-        case "$${NODE_TYPE}" in
-          "rpc")
-            # RPC node connects to available validators
-            local added_validators=0
-            for validator in validator1 validator2 validator3 validator4; do
-              local validator_enode_file="/config/keys/$${validator}.enode"
-              if [ -f "$${validator_enode_file}" ]; then
-                local validator_enode=$$(cat "$${validator_enode_file}")
-                if [ ! -z "$${validator_enode}" ]; then
-                  bootnodes_list="$${bootnodes_list},$${validator_enode}"
-                  added_validators=$$((added_validators + 1))
-                fi
-              fi
-            done
-            ;;
-          "validator")
-            # Validators connect to bootnode + other available validators
-            for other_validator in validator1 validator2 validator3 validator4; do
-              if [ "$${other_validator}" != "$${GETH_IDENTITY}" ]; then
-                local other_enode_file="/config/keys/$${other_validator}.enode"
-                if [ -f "$${other_enode_file}" ]; then
-                  local other_enode=$$(cat "$${other_enode_file}")
-                  if [ ! -z "$${other_enode}" ]; then
-                    bootnodes_list="$${bootnodes_list},$${other_enode}"
-                  fi
-                fi
-              fi
-            done
-            ;;
-        esac
-        
-        echo "$${bootnodes_list}"
-      }
-
-      # Function to prepare node data and account
-      prepare_node() {
-        echo "🔧 Preparing node data and account..."
-        
-        # Create necessary directories (TOML DataDir = /opt/geth/data)
-        mkdir -p /opt/geth/data/keystore
-        
-        # Create password file
-        echo "$${ACCOUNT_PASSWORD}" > /opt/geth/data/password.txt
-
-        # Define private key source path (from volume mount)
-        local PRIVATE_KEY_SOURCE="/opt/geth/data/keystore/accountPrivateKey"
-        local PRIVATE_KEY_CLEAN="/opt/geth/data/accountPrivateKey"
-        
-        # Check if we have a private key file to import
-        if [ -f "$${PRIVATE_KEY_SOURCE}" ]; then
-          # Sanitize private key (remove whitespace and 0x prefix)
-          cat "$${PRIVATE_KEY_SOURCE}" | tr -d '[:space:]' | tr -d '\n\r\t' | sed 's/^0x//' > "$${PRIVATE_KEY_CLEAN}"
-          
-          # Check if account is already imported (check keystore directory for any UTC files)
-          if ! ls /opt/geth/data/keystore/UTC--* >/dev/null 2>&1; then
-            echo "📥 Importing account..."
-            if geth account import \
-              --datadir=/opt/geth/data \
-              --password=/opt/geth/data/password.txt \
-              "$${PRIVATE_KEY_CLEAN}" 2>/dev/null; then
-              echo "✅ Account imported successfully"
-            else
-              echo "⚠️  Account import failed or already exists, continuing..."
-            fi
-          else
-            echo "✅ Account keystore already exists, skipping import"
-          fi
-          
-          # Clean up temporary private key file
-          rm -f "$${PRIVATE_KEY_CLEAN}"
-        else
-          echo "⚠️  Private key file not found: $${PRIVATE_KEY_SOURCE}"
-          echo "   Checking if account already exists in keystore..."
-
-          # Check if any keystore files exist
-          if ls /opt/geth/data/keystore/UTC--* >/dev/null 2>&1; then
-            echo "✅ Found existing keystore files"
-          else
-            echo "❌ No keystore files found - account import required"
-            exit 1
-          fi
-        fi
-
-        # Initialize genesis if needed (TOML DataDir is used automatically)
-        if [ ! -f /opt/geth/data/geth/chaindata/000001.log ]; then
-          echo "🎬 Initializing genesis..."
-          geth init --datadir=/opt/geth/data /config/genesis.json
-        fi
-        
-        # Verify account exists in keystore
-        local account_check=$$(geth account list --datadir=/opt/geth/data 2>/dev/null | grep -i "$${ACCOUNT_ADDRESS}" || echo "")
-        if [ -z "$${account_check}" ]; then
-          echo "❌ Account $${ACCOUNT_ADDRESS} not found in keystore"
-          echo "Available accounts:"
-          geth account list --datadir=/opt/geth/data 2>/dev/null || echo "No accounts found"
-          exit 1
-        fi
-        
-        echo "✅ Node preparation completed"
-      }
-
-      # Function to build minimal geth arguments (TOML-compliant)
-      build_geth_args() {
-        local bootnodes_list=$$(build_bootnodes_list)
-        local args=""
-        
-        # ===================================================================
-        # CORE ARGUMENTS (Cannot be set in TOML)
-        # ===================================================================
-        
-        # Configuration file (MUST be specified as argument)
-        args="--config=/config/config.toml"
-        
-        # Dynamic network discovery (MUST be runtime argument)
-        args="$${args} --bootnodes $${bootnodes_list}"
-        
-        # Network address translation (runtime-specific)
-        # args="$${args} --nat=extip:$$(hostname -i)"
-
-        # ===================================================================
-        # ACCOUNT MANAGEMENT (Cannot be set in TOML)
-        # ===================================================================
-        
-        # Account unlocking (security-sensitive, runtime-only)
-        args="$${args} --unlock 0x$${ACCOUNT_ADDRESS}"
-        args="$${args} --password=/opt/geth/data/password.txt"
-        args="$${args} --allow-insecure-unlock"
-        
-        # ===================================================================
-        # NODE-SPECIFIC OVERRIDES (Override TOML for specific roles)
-        # ===================================================================
-        
-        args="$${args} --ipcdisable"
-        args="$${args} --authrpc.addr="" --authrpc.port=0" 
-
-        case "$${NODE_TYPE:-validator}" in
-          "validator")
-            # Mining configuration (if enabled)
-            if [ "$${MINING_ENABLED:-true}" = "true" ]; then
-              args="$${args} --mine"
-              args="$${args} --miner.etherbase 0x$${ACCOUNT_ADDRESS}"
-            fi
-            
-            # Validator-specific: Disable peer discovery for private network
-            if [ "$${ENABLE_DISCOVERY:-true}" = "true" ]; then
-              args="$${args} --discovery.port=30303"
-            else
-              args="$${args} --nodiscover"
-            fi
-            ;;
-            
-          "rpc")
-            # RPC node: No mining; Mining disabled by omitting --mine flag
-            
-            # RPC-specific: Extended API modules (override TOML)
-            args="$${args} --http.api admin,debug,web3,eth,txpool,net"
-            args="$${args} --ws.api admin,debug,web3,eth,txpool,net"
-            args="$${args} --rpc.allow-unprotected-txs"
-            
-            # Enable discovery for better peer connectivity
-            args="$${args} --discovery.port=30303"
-            ;;
-        esac
-        
-        # ===================================================================
-        # OPTIONAL RUNTIME ARGUMENTS
-        # ===================================================================
-
-        # Logging level (can override TOML default)
-        if [ -n "$${GETH_VERBOSITY}" ]; then
-          args="$${args} --verbosity=$${GETH_VERBOSITY}"
-        fi
-        
-        # Additional custom arguments from environment
-        if [ -n "$${EXTRA_ARGS}" ]; then
-          args="$${args} $${EXTRA_ARGS}"
-        fi
-        
-        echo "$${args}"
-      }
-
-      # Function to validate configuration
-      validate_config() {
-        echo "🔍 Validating configuration..."
-        
-        # Check required environment variables
-        local required_vars="GETH_IDENTITY ACCOUNT_ADDRESS ACCOUNT_PASSWORD"
-        for var in $${required_vars}; do
-          eval "value=\$${var}"
-          if [ -z "$${value}" ]; then
-            echo "❌ Required environment variable: $${var}"
-            exit 1
-          fi
-        done
-        
-        # Check required files
-        local required_files="/config/config.toml /config/genesis.json /opt/geth/data/keystore/accountPrivateKey"
-        for file in $${required_files}; do
-          if [ ! -f "$${file}" ]; then
-            echo "❌ Required file not found: $${file}"
-            exit 1
-          fi
-        done
-        
-        # Validate TOML configuration exists and is readable
-        if ! geth dumpconfig --config=/config/config.toml >/dev/null 2>&1; then
-          echo "❌ Invalid TOML configuration: /config/config.toml"
-          exit 1
-        fi
-        
-        echo "✅ Configuration validation passed"
-      }
-
-      # Function to show startup information
-      show_startup_info() {
-        echo "=================================="
-        echo "🚀 GETH NODE STARTUP (TOML-Mode)"
-        echo "=================================="
-        echo "Node Name:       $${GETH_IDENTITY}"
-        echo "Node Type:       $${NODE_TYPE:-validator}"
-        echo "Account:         $${ACCOUNT_ADDRESS}"
-        echo "Mining:          $${MINING_ENABLED:-true}"
-        echo "TOML Config:     /config/config.toml"
-        echo "Genesis:         /config/genesis.json"
-        echo "=================================="
-        echo "📋 TOML Configuration Summary:"
-        echo "   NetworkId: $$(grep 'NetworkId' /config/config.toml | cut -d'=' -f2 | tr -d ' ')"
-        echo "   DataDir: $$(grep 'DataDir' /config/config.toml | cut -d'=' -f2 | tr -d '\"' | tr -d ' ')"
-        echo "   HTTPPort: $$(grep 'HTTPPort' /config/config.toml | cut -d'=' -f2 | tr -d ' ')"
-        echo "   WSPort: $$(grep 'WSPort' /config/config.toml | cut -d'=' -f2 | tr -d ' ')"
-        echo "=================================="
-      }
-
-      # Main execution flow
-      echo "🔧 Starting TOML-compliant Geth initialization..."
-
-      # Step 1: Validate configuration
-      validate_config
-
-      # Step 2: Prepare node
-      prepare_node
-
-      # Step 3: Show startup information  
-      show_startup_info
-
-      # Step 4: FOR RPC NODES ONLY - Wait for some validators (non-blocking)
-      if [ "$${NODE_TYPE}" = "rpc" ]; then
-        wait_for_peer_enodes
+      
+      # Create data directory if it doesn't exist
+      mkdir -p /opt/geth/data
+      
+      # Idempotent genesis initialization
+      if [ ! -d "/opt/geth/data/geth/chaindata" ]; then
+        echo "Initializing genesis block..."
+        geth init --datadir /opt/geth/data /config/genesis.json
+      else
+        echo "Genesis already initialized, skipping..."
       fi
-
-      # Step 5: Build minimal arguments (TOML does the heavy lifting)
-      GETH_ARGS=$$(build_geth_args)
-
-      # Step 6: Start Geth in background
-      echo "🚀 Starting Geth with minimal arguments:"
-      echo "geth $${GETH_ARGS}"
-      echo ""
-      echo "📝 Note: Most configuration loaded from /config/config.toml"
-      echo "=================================="
-
-      # Execute Geth with TOML configuration + minimal runtime args
-      exec geth $${GETH_ARGS} &
-      GETH_PID=$$!
-
-      # Wait for startup and generate enode (FOR VALIDATORS)
+      
+      # Wait for bootnode enode file to be available
+      echo "Waiting for bootnode enode file..."
+      while [ ! -f "/config/keys/bootnode.enode" ]; do
+        echo "Bootnode enode not found, waiting 2 seconds..."
+        sleep 2
+      done
+      
+      # Idempotent account import (sanitize key, import if not exists)
+      if [ -f "/opt/geth/data/keystore/accountPrivateKey" ]; then
+        echo "Importing account private key..."
+        PRIV_KEY=$(cat /opt/geth/data/keystore/accountPrivateKey | tr -d '[:space:]' | sed 's/^0x//')
+        echo "$${ACCOUNT_PASSWORD:-}" > /opt/geth/data/password.txt
+        
+        # Check if account already exists
+        if ! geth account list --datadir /opt/geth/data | grep -qi "$${ACCOUNT_ADDRESS}"; then
+          echo "$${PRIV_KEY}" | geth account import --datadir /opt/geth/data --password /opt/geth/data/password.txt
+          echo "Account imported successfully"
+        else
+          echo "Account already exists, skipping import..."
+        fi
+      fi
+      
+      # Read bootnode enode
+      BOOTNODE_ENODE=$(cat /config/keys/bootnode.enode)
+      echo "Using bootnode: $${BOOTNODE_ENODE}"
+      
+      # Build base geth command
+      GETH_CMD="geth --config /config/config.toml --bootnodes $${BOOTNODE_ENODE}"
+      
+      # Add node-specific arguments
       if [ "$${NODE_TYPE}" = "validator" ]; then
-        sleep 15  # Give geth time to start and generate nodekey
-        generate_node_enode &
+        echo "Starting as validator node..."
+        GETH_CMD="$${GETH_CMD} --unlock 0x$${ACCOUNT_ADDRESS} --password /opt/geth/data/password.txt --allow-insecure-unlock --mine --miner.etherbase 0x$${ACCOUNT_ADDRESS} --http.api admin,eth,net,web3,txpool,clique"
+      elif [ "$${NODE_TYPE}" = "rpc" ]; then
+        echo "Starting as RPC node..."
+        GETH_CMD="$${GETH_CMD} --http.api admin,eth,net,web3,txpool,clique --ws.api admin,debug,web3,eth,txpool,net --rpc.allow-unprotected-txs"
       fi
-
-      # Wait for main process
-      wait $${GETH_PID}
+      
+      # Add extra args if provided
+      if [ -n "$${EXTRA_ARGS:-}" ]; then
+        GETH_CMD="$${GETH_CMD} $${EXTRA_ARGS}"
+      fi
+      
+      echo "Executing: $${GETH_CMD}"
+      exec $${GETH_CMD}
 
 # x-web3signerProxy-def: &web3signerProxy-def
 #   image: consensys/web3signer:${WEB3SIGNER_VERSION:-latest}
@@ -401,152 +86,47 @@ x-geth-def: &geth-def
 
 services:
   bootnode:
-    image: ethereum/client-go:alltools-v1.12.0
+    image: ethereum/client-go:alltools-${GETH_VERSION:-v1.12.0}
     container_name: bootnode
-    environment:
-      # Bootnode Configuration
-      - BOOTNODE_PORT=30301
-      - BOOTNODE_VERBOSITY=3
-      - BOOTNODE_KEY_FILE=/config/keys/bootnode.key
-      - BOOTNODE_LISTEN_ADDR=0.0.0.0
-      # Monitoring
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=bootnode,service.version=${GETH_VERSION:-v1.12.0}
-    labels:
-      - "node.type=bootnode"
-      - "consensus=clique"
     entrypoint:
       - /bin/sh
       - -c
       - |
         set -e
-
-        echo "=== Bootnode Initialization ==="
-        echo "Starting bootnode service for Geth Clique PoA network..."
-
-        # Key generation and validation
-        BOOTNODE_KEY_PATH="/config/keys/bootnode.key"
-
-        # Function to generate bootnode key
-        generate_bootnode_key() {
+        
+        # Ensure keys directory exists
+        mkdir -p /config/keys
+        
+        KEY_PATH="/config/keys/bootnode.key"
+        ENODE_PATH="/config/keys/bootnode.enode"
+        
+        # Generate bootnode key if it doesn't exist
+        if [ ! -f "$${KEY_PATH}" ]; then
           echo "Generating new bootnode key..."
-          bootnode -genkey "$${BOOTNODE_KEY_PATH}"
-          if [ $? -eq 0 ]; then
-            echo "✅ Bootnode key generated successfully: $${BOOTNODE_KEY_PATH}"
-          else
-            echo "❌ Failed to generate bootnode key"
-            exit 1
-          fi
-        }
-
-        # Function to validate existing key
-        validate_bootnode_key() {
-          if [ -f "$${BOOTNODE_KEY_PATH}" ]; then
-            # Check if the key file is valid (64 hex characters)
-            KEY_CONTENT=$(cat "$${BOOTNODE_KEY_PATH}" | tr -d '\n\r\s')
-            if [ $${#KEY_CONTENT} -eq 64 ] && echo "$${KEY_CONTENT}" | grep -qE '^[0-9a-fA-F]{64}$$'; then
-              echo "✅ Valid bootnode key found: $${BOOTNODE_KEY_PATH}"
-              return 0
-            else
-              echo "⚠️  Invalid bootnode key format, regenerating..."
-              return 1
-            fi
-          else
-            echo "⚠️  Bootnode key not found, generating new one..."
-            return 1
-          fi
-        }
-
-        # Key management logic
-        if ! validate_bootnode_key; then
-          generate_bootnode_key
-        fi
-
-        # Extract public key and generate enode for logging
-        echo "=== Bootnode Information ==="
-        BOOTNODE_PUBKEY=$$(bootnode -nodekey "$${BOOTNODE_KEY_PATH}" -writeaddress)
-        BOOTNODE_IP=$$(hostname -i)
-        BOOTNODE_ENODE="enode://$${BOOTNODE_PUBKEY}@$${BOOTNODE_IP}:$${BOOTNODE_PORT}"
-
-        echo "Bootnode Public Key: $${BOOTNODE_PUBKEY}"
-        echo "Bootnode IP Address: $${BOOTNODE_IP}"
-        echo "Bootnode Enode: $${BOOTNODE_ENODE}"
-        echo "Bootnode Listen Port: $${BOOTNODE_PORT}"
-
-        # Save enode information for other services
-        echo "$${BOOTNODE_ENODE}" > /config/keys/bootnode.enode
-        echo "$${BOOTNODE_PUBKEY}" > /config/keys/bootnode.pubkey
-
-        # Health check function
-        bootnode_health_check() {
-          # Simple check to ensure bootnode is responsive
-          if netstat -tuln | grep -q ":$${BOOTNODE_PORT}"; then
-            echo "✅ Bootnode health check passed"
-            return 0
-          else
-            echo "❌ Bootnode health check failed"
-            return 1
-          fi
-        }
-
-        # Trap signals for graceful shutdown
-        cleanup() {
-          echo "Received shutdown signal, stopping bootnode..."
-          kill $${BOOTNODE_PID} 2>/dev/null || true
-          wait $${BOOTNODE_PID} 2>/dev/null || true
-          echo "Bootnode stopped gracefully"
-          exit 0
-        }
-        trap cleanup SIGTERM SIGINT
-
-        echo "=== Starting Bootnode Service ==="
-
-        # Start bootnode service in background
-        bootnode \
-          -nodekey "$${BOOTNODE_KEY_PATH}" \
-          -addr ":$${BOOTNODE_PORT}" \
-          -verbosity "$${BOOTNODE_VERBOSITY}" &
-
-        BOOTNODE_PID=$$!
-        echo "Bootnode started with PID: $${BOOTNODE_PID}"
-
-        # Wait a moment for the service to initialize
-        sleep 3
-
-        # Perform initial health check
-        if bootnode_health_check; then
-          echo "🚀 Bootnode is running successfully!"
-          echo "=== Network Discovery Service Active ==="
+          bootnode -genkey "$${KEY_PATH}"
         else
-          echo "❌ Bootnode failed to start properly"
-          exit 1
+          echo "Using existing bootnode key..."
         fi
-
-        # Keep the container running and monitor the bootnode process
-        while kill -0 $${BOOTNODE_PID} 2>/dev/null; do
-          sleep 10
-          # Periodic health check (every 60 seconds)
-          if [ $$((SECONDS % 60)) -eq 0 ]; then
-            if ! bootnode_health_check; then
-              echo "⚠️  Bootnode health check failed, restarting..."
-              kill $${BOOTNODE_PID} 2>/dev/null || true
-              break
-            fi
-          fi
-        done
-
-        # If we reach here, the bootnode process died unexpectedly
-        echo "❌ Bootnode process died unexpectedly"
-        exit 1
+        
+        # Get public key and construct enode
+        PUBKEY=$(bootnode -nodekey "$${KEY_PATH}" -writeaddress)
+        IP=$(hostname -i)
+        ENODE="enode://$${PUBKEY}@$${IP}:30301"
+        
+        echo "Bootnode enode: $${ENODE}"
+        echo "$${ENODE}" > "$${ENODE_PATH}"
+        
+        echo "Starting bootnode..."
+        exec bootnode -nodekey "$${KEY_PATH}" -addr ":30301" -verbosity 3
     volumes:
       - ./network/config/geth/bootnode:/config/keys
     ports:
-      - 30301:30301/udp
-      - 30301:30301/tcp
+      - 30301
     networks:
       ethnet:
         ipv4_address: 172.16.239.10
     healthcheck:
-      test: ["CMD", "sh", "-c", "netstat -tuln | grep -q :30301"]
+      test: ["CMD", "sh", "-c", "netstat -tuln | grep :30301 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -559,30 +139,27 @@ services:
       - GETH_IDENTITY=validator1
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=ed9d02e382b34818e88b88a309c7fe71e65f419d
-      - ACCOUNT_PASSWORD=
-      - MINING_ENABLED=true
-      - MINER_GASPRICE=1000000000
-      - BOOTNODE_READY_TIMEOUT=60
-      - GETH_VERBOSITY=3
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=validator1,service.version=${GETH_VERSION:-v1.12.0}
-    labels:
-      - "consensus=clique"
-      - "node.type=validator"
+      - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
     volumes:
       - validator1-data:/opt/geth/data
       - ./network/config/geth:/config
-      - ./network/config/geth/bootnode:/config/keys
+      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/validator1:/opt/geth/data/keystore
     ports:
       - 21001:8545/tcp
-      - 30303:30303/tcp
-      - 30303:30303/udp
-      - 9545:9545/tcp
+      - 30303
     depends_on:
-      - bootnode
+      bootnode:
+        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.11
+    healthcheck:
+      test: ["CMD", "sh", "-c", "geth attach --exec 'eth.blockNumber' http://localhost:8545 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   validator2:
     <<: *geth-def
@@ -591,31 +168,27 @@ services:
       - GETH_IDENTITY=validator2
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=b30f304642de3fee4365ed5cd06ea2e69d3fd0ca
-      - ACCOUNT_PASSWORD=
-      - MINING_ENABLED=true
-      - MINER_GASPRICE=1000000000
-      - BOOTNODE_READY_TIMEOUT=60
-      - GETH_VERBOSITY=3
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=validator2,service.version=${GETH_VERSION:-v1.12.0}
-    labels:
-      - "consensus=clique"
-      - "node.type=validator"
+      - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
     volumes:
       - validator2-data:/opt/geth/data
       - ./network/config/geth:/config
-      - ./network/config/geth/bootnode:/config/keys
+      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/validator2:/opt/geth/data/keystore
     ports:
       - 21002:8545/tcp
-      - 30304:30303/tcp
-      - 30304:30303/udp
-      - 9546:9545/tcp
+      - 30303
     depends_on:
-      - bootnode
-      - validator1
+      bootnode:
+        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.12
+    healthcheck:
+      test: ["CMD", "sh", "-c", "geth attach --exec 'eth.blockNumber' http://localhost:8545 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   validator3:
     <<: *geth-def
@@ -624,31 +197,27 @@ services:
       - GETH_IDENTITY=validator3
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=0886328869e4e1f401e1052a5f4aae8b45f42610
-      - ACCOUNT_PASSWORD=
-      - MINING_ENABLED=true
-      - MINER_GASPRICE=1000000000
-      - BOOTNODE_READY_TIMEOUT=60
-      - GETH_VERBOSITY=3
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=validator3,service.version=${GETH_VERSION:-v1.12.0}
-    labels:
-      - "consensus=clique"
-      - "node.type=validator"
+      - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
     volumes:
       - validator3-data:/opt/geth/data
       - ./network/config/geth:/config
-      - ./network/config/geth/bootnode:/config/keys
+      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/validator3:/opt/geth/data/keystore
     ports:
       - 21003:8545/tcp
-      - 30305:30303/tcp
-      - 30305:30303/udp
-      - 9547:9545/tcp
+      - 30303
     depends_on:
-      - bootnode
-      - validator1
+      bootnode:
+        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.13
+    healthcheck:
+      test: ["CMD", "sh", "-c", "geth attach --exec 'eth.blockNumber' http://localhost:8545 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   validator4:
     <<: *geth-def
@@ -657,31 +226,46 @@ services:
       - GETH_IDENTITY=validator4
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=f48de4a0c2939e62891f3c6aca68982975477e45
-      - ACCOUNT_PASSWORD=
-      - MINING_ENABLED=true
-      - MINER_GASPRICE=1000000000
-      - BOOTNODE_READY_TIMEOUT=60
-      - GETH_VERBOSITY=3
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=validator4,service.version=${GETH_VERSION:-v1.13.13}
-    labels:
-      - "consensus=clique"
-      - "node.type=validator"
+      - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
     volumes:
       - validator4-data:/opt/geth/data
       - ./network/config/geth:/config
-      - ./network/config/geth/bootnode:/config/keys
+      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/validator4:/opt/geth/data/keystore
     ports:
       - 21004:8545/tcp
-      - 30306:30303/tcp
-      - 30306:30303/udp
-      - 9548:9545/tcp
+      - 30303
     depends_on:
-      - bootnode
-      - validator1
+      bootnode:
+        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.14
+    healthcheck:
+      test: ["CMD", "sh", "-c", "geth attach --exec 'eth.blockNumber' http://localhost:8545 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # additional validator node required for testing of adding a new validator into the consensus
+  # validator5:
+  #   <<: *geth-def
+  #   ports:
+  #     - 21005:8545/tcp
+  #     - 30303
+  #     - 9545
+  #   environment:
+  #     - OTEL_RESOURCE_ATTRIBUTES=service.name=validator5,service.version=${BESU_VERSION:-latest}
+  #   labels:
+  #     - "consensus=besu"
+  #   volumes:
+  #     - ./network/config/besu/:/config
+  #     - ./network/config/nodes/node-test5:/opt/besu/keys
+  #     - ./network/logs/besu:/tmp/besu
+  #   networks:
+  #     quorum-dev-quickstart:
+  #       ipv4_address: 172.16.239.16
 
   rpcnode:
     <<: *geth-def
@@ -690,45 +274,27 @@ services:
       - GETH_IDENTITY=rpcnode
       - NODE_TYPE=rpc
       - ACCOUNT_ADDRESS=c9c913c8c3c1cd416d80a0abf475db2062f161f6
-      - ACCOUNT_PASSWORD=
-      - MINING_ENABLED=false
-      - BOOTNODE_READY_TIMEOUT=60
-      - GETH_VERBOSITY=3
-      - OTEL_RESOURCE_ATTRIBUTES=service.name=rpcnode,service.version=${GETH_VERSION:-v1.12.0}
-    labels:
-      - "consensus=clique"
-      - "node.type=rpc"
+      - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
     volumes:
       - rpcnode-data:/opt/geth/data
-      - ./network/config/geth/:/config
-      - ./network/config/geth/bootnode:/config/keys
+      - ./network/config/geth:/config
+      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/rpcnode:/opt/geth/data/keystore
     ports:
       - 8545:8545/tcp
       - 8546:8546/tcp
-      - 30307:30303/tcp
-      - 30307:30303/udp
-      - 9549:9545/tcp
     depends_on:
-      - bootnode
-      - validator1
-      - validator2
+      bootnode:
+        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.15
     healthcheck:
-      test:
-        [
-          "CMD",
-          "sh", 
-          "-c",
-          # First check if port is open, then try simple HTTP request
-          'netstat -tuln | grep -q ":8545" && (echo "GET /" | timeout 3 nc localhost 8545 >/dev/null 2>&1 || netstat -tuln | grep -q ":8545")'
-        ]
+      test: ["CMD", "sh", "-c", "geth attach --exec 'eth.blockNumber' http://localhost:8545 || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 120s  # Longer start period for full initialization
+      retries: 5
+      start_period: 30s
 
   # web3signerProxy:
   #   <<: *web3signerProxy-def
@@ -742,8 +308,70 @@ services:
   #   ports:
   #     - 18545:8545/tcp
   #   networks:
-  #     ethnet:
+  #     quorum-dev-quickstart:
   #       ipv4_address: 172.16.239.40
+
+  # ethsignerProxy:
+  #   <<: *ethsignerProxy-def
+  #   volumes:
+  #     - ./network/config/ethsigner/password:/opt/ethsigner/passwordfile
+  #     - ./network/config/ethsigner/key:/opt/ethsigner/keyfile
+  #   depends_on:
+  #     - validator1
+  #     - rpcnode
+  #   ports:
+  #     - 18545:8545/tcp
+  #   networks:
+  #     quorum-dev-quickstart:
+  #       ipv4_address: 172.16.239.40
+
+  # prometheus:
+  #   image: "prom/prometheus"
+  #   volumes:
+  #     - ./network/config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+  #     - prometheus:/prometheus
+  #   command:
+  #     - --config.file=/etc/prometheus/prometheus.yml
+  #   ports:
+  #     - 9090:9090/tcp
+  #   networks:
+  #     quorum-dev-quickstart:
+  #       ipv4_address: 172.16.239.32
+
+  # grafana:
+  #   image: "grafana/grafana"
+  #   environment:
+  #     - GF_AUTH_ANONYMOUS_ENABLED=true
+  #     - GF_USERS_VIEWERS_CAN_EDIT=true
+  #   volumes:
+  #     - ./network/config/grafana/provisioning/:/etc/grafana/provisioning/
+  #     - grafana:/var/lib/grafana
+  #   ports:
+  #     - 3000:3000/tcp
+  #   networks:
+  #     quorum-dev-quickstart:
+  #       ipv4_address: 172.16.239.33
+
+  # loki:
+  #   image: "grafana/loki"
+  #   volumes:
+  #     - ./network/infra/loki/loki.yml:/etc/loki/local-config.yaml
+  #   command: -config.file=/etc/loki/local-config.yaml
+  #   ports:
+  #     - 3100:3100/tcp
+  #   networks:
+  #     quorum-dev-quickstart:
+  #       ipv4_address: 172.16.239.34
+
+  # promtail:
+  #   image: "grafana/promtail"
+  #   volumes:
+  #     - ./network/logs:/var/log
+  #     - ./network/infra/promtail/promtail.yml:/etc/promtail/config.yml
+  #   command: -config.file=/etc/promtail/config.yml
+  #   networks:
+  #     quorum-dev-quickstart:
+  #       ipv4_address: 172.16.239.35
 
 volumes:
   validator1-data:
