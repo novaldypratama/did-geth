@@ -4,17 +4,6 @@
   },
   "ethereum": {
     "url": "ws://localhost:8546",
-    "nodes": [
-      {
-        "url": "ws://localhost:8546"
-      },
-      {
-        "url": "ws://localhost:21001"
-      },
-      {
-        "url": "ws://localhost:21002"
-      }
-    ],
     "contractDeployerAddresses": "0xed9d02e382b34818e88B88a309c7fe71E65f419d",
     "contractDeployerAddressPrivateKeys": "0xe6181caaffff94a09d7e332fc8da9884d99902c7874eb74354bdcadf411929f1",
     "fromAddress": "0xed9d02e382b34818e88B88a309c7fe71E65f419d",
@@ -64,7 +53,7 @@
         "deploy": false,
         "estimateGas": false,
         "gas": {
-          "assignRole": 110000,
+          "assignRole": 100000,
           "revokeRole": 70000,
           "getRole": 20000,
           "hasRole": 20000,
@@ -333,7 +322,7 @@
         "deploy": false,
         "estimateGas": false,
         "gas": {
-          "createDid": 150000,
+          "createDid": 140000,
           "updateDid": 80000,
           "deactivateDid": 50000,
           "resolveDid": 20000,
@@ -770,7 +759,7 @@
         "deploy": false,
         "estimateGas": false,
         "gas": {
-          "issueCredential": 150000,
+          "issueCredential": 130000,
           "updateCredentialStatus": 100000,
           "resolveCredential": 20000
         },
