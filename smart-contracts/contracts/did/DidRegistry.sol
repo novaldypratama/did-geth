@@ -224,8 +224,6 @@ contract DidRegistry is IDidRegistry {
         string calldata docCid
     )
         internal
-        _didNotExist(identity)
-        _identityOwner(identity, actor)
         _senderIsTrusteeOrIssuerOrHolder
     {
         // Validate inputs first
