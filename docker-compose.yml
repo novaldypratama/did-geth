@@ -1,5 +1,5 @@
 x-geth-def: &geth-def
-  image: ethereum/client-go:${GETH_VERSION:-v1.12.0}  # Pin to <1.14 with Clique support
+  image: ethereum/client-go:alltools-${GETH_VERSION:-v1.12.0}  # Pin to <1.14 with Clique support
   restart: on-failure
   entrypoint:
     - /bin/sh
@@ -10,10 +10,18 @@ x-geth-def: &geth-def
       echo "=== Initializing $${GETH_IDENTITY} ($${NODE_TYPE}) ==="
       echo "Node Type: $${NODE_TYPE:-validator}"
       echo "Account: $${ACCOUNT_ADDRESS}"
+      echo "Container IP: $${CONTAINER_IP}"
       echo "TOML Config: /config/config.toml"
       
       # Create data directory if it doesn't exist
-      mkdir -p /opt/geth/data
+      mkdir -p /opt/geth/data/geth
+      
+      # Copy fixed nodekey to ensure deterministic node ID
+      if [ -f "/config/nodekey/nodekey" ]; then
+        echo "Using fixed nodekey for deterministic node ID..."
+        cp /config/nodekey/nodekey /opt/geth/data/geth/nodekey
+        chmod 600 /opt/geth/data/geth/nodekey
+      fi
       
       # Idempotent genesis initialization
       if [ ! -d "/opt/geth/data/geth/chaindata" ]; then
@@ -22,13 +30,6 @@ x-geth-def: &geth-def
       else
         echo "Genesis already initialized, skipping..."
       fi
-      
-      # Wait for bootnode enode file to be available
-      echo "Waiting for bootnode enode file..."
-      while [ ! -f "/config/keys/bootnode.enode" ]; do
-        echo "Bootnode enode not found, waiting 2 seconds..."
-        sleep 2
-      done
       
       # Idempotent account import (sanitize key, import if not exists)
       if [ -f "/opt/geth/data/keystore/accountPrivateKey" ]; then
@@ -45,13 +46,9 @@ x-geth-def: &geth-def
         fi
       fi
       
-      # Read bootnode enode
-      BOOTNODE_ENODE=$(cat /config/keys/bootnode.enode)
-      echo "Using bootnode: $${BOOTNODE_ENODE}"
-      
-      # Build base geth command
-      GETH_CMD="geth --config /config/config.toml --bootnodes $${BOOTNODE_ENODE}"
-      
+      # Build base geth command with deterministic mesh configuration
+      GETH_CMD="geth --config /config/config.toml --ipcdisable --nodiscover --nat extip:$${CONTAINER_IP}"
+
       # Add node-specific arguments
       if [ "$${NODE_TYPE}" = "validator" ]; then
         echo "Starting as validator node..."
@@ -85,52 +82,52 @@ x-geth-def: &geth-def
 #     - 8545
 
 services:
-  bootnode:
-    image: ethereum/client-go:alltools-${GETH_VERSION:-v1.12.0}
-    container_name: bootnode
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        set -e
+  # bootnode:
+  #   image: ethereum/client-go:alltools-${GETH_VERSION:-v1.12.0}
+  #   container_name: bootnode
+  #   entrypoint:
+  #     - /bin/sh
+  #     - -c
+  #     - |
+  #       set -e
         
-        # Ensure keys directory exists
-        mkdir -p /config/keys
+  #       # Ensure keys directory exists
+  #       mkdir -p /config/keys
         
-        KEY_PATH="/config/keys/bootnode.key"
-        ENODE_PATH="/config/keys/bootnode.enode"
+  #       KEY_PATH="/config/keys/bootnode.key"
+  #       ENODE_PATH="/config/keys/bootnode.enode"
         
-        # Generate bootnode key if it doesn't exist
-        if [ ! -f "$${KEY_PATH}" ]; then
-          echo "Generating new bootnode key..."
-          bootnode -genkey "$${KEY_PATH}"
-        else
-          echo "Using existing bootnode key..."
-        fi
+  #       # Generate bootnode key if it doesn't exist
+  #       if [ ! -f "$${KEY_PATH}" ]; then
+  #         echo "Generating new bootnode key..."
+  #         bootnode -genkey "$${KEY_PATH}"
+  #       else
+  #         echo "Using existing bootnode key..."
+  #       fi
         
-        # Get public key and construct enode
-        PUBKEY=$(bootnode -nodekey "$${KEY_PATH}" -writeaddress)
-        IP=$(hostname -i)
-        ENODE="enode://$${PUBKEY}@$${IP}:30301"
+  #       # Get public key and construct enode
+  #       PUBKEY=$(bootnode -nodekey "$${KEY_PATH}" -writeaddress)
+  #       IP=$(hostname -i)
+  #       ENODE="enode://$${PUBKEY}@$${IP}:30301"
         
-        echo "Bootnode enode: $${ENODE}"
-        echo "$${ENODE}" > "$${ENODE_PATH}"
+  #       echo "Bootnode enode: $${ENODE}"
+  #       echo "$${ENODE}" > "$${ENODE_PATH}"
         
-        echo "Starting bootnode..."
-        exec bootnode -nodekey "$${KEY_PATH}" -addr ":30301" -verbosity 3
-    volumes:
-      - ./network/config/geth/bootnode:/config/keys
-    ports:
-      - 30301
-    networks:
-      ethnet:
-        ipv4_address: 172.16.239.10
-    healthcheck:
-      test: ["CMD", "sh", "-c", "netstat -tuln | grep :30301 || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+  #       echo "Starting bootnode..."
+  #       exec bootnode -nodekey "$${KEY_PATH}" -addr ":30301" -verbosity 3
+  #   volumes:
+  #     - ./network/config/geth/bootnode:/config/keys
+  #   ports:
+  #     - 30301
+  #   networks:
+  #     ethnet:
+  #       ipv4_address: 172.16.239.10
+  #   healthcheck:
+  #     test: ["CMD", "sh", "-c", "netstat -tuln | grep :30301 || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 10s
 
   validator1:
     <<: *geth-def
@@ -140,17 +137,15 @@ services:
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=ed9d02e382b34818e88b88a309c7fe71e65f419d
       - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
+      - CONTAINER_IP=172.16.239.11
     volumes:
       - validator1-data:/opt/geth/data
       - ./network/config/geth:/config
-      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/validator1:/opt/geth/data/keystore
+      - ./network/config/nodes/validator1:/config/nodekey:ro  # Mount fixed nodekey
     ports:
       - 21001:8545/tcp
       - 30303
-    depends_on:
-      bootnode:
-        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.11
@@ -169,17 +164,15 @@ services:
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=b30f304642de3fee4365ed5cd06ea2e69d3fd0ca
       - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
+      - CONTAINER_IP=172.16.239.12
     volumes:
       - validator2-data:/opt/geth/data
       - ./network/config/geth:/config
-      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/validator2:/opt/geth/data/keystore
+      - ./network/config/nodes/validator2:/config/nodekey:ro  # Mount fixed nodekey
     ports:
       - 21002:8545/tcp
       - 30303
-    depends_on:
-      bootnode:
-        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.12
@@ -198,17 +191,15 @@ services:
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=0886328869e4e1f401e1052a5f4aae8b45f42610
       - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
+      - CONTAINER_IP=172.16.239.13
     volumes:
       - validator3-data:/opt/geth/data
       - ./network/config/geth:/config
-      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/validator3:/opt/geth/data/keystore
+      - ./network/config/nodes/validator3:/config/nodekey:ro  # Mount fixed nodekey
     ports:
       - 21003:8545/tcp
       - 30303
-    depends_on:
-      bootnode:
-        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.13
@@ -227,17 +218,15 @@ services:
       - NODE_TYPE=validator
       - ACCOUNT_ADDRESS=f48de4a0c2939e62891f3c6aca68982975477e45
       - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
+      - CONTAINER_IP=172.16.239.14
     volumes:
       - validator4-data:/opt/geth/data
       - ./network/config/geth:/config
-      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/validator4:/opt/geth/data/keystore
+      - ./network/config/nodes/validator4:/config/nodekey:ro  # Mount fixed nodekey
     ports:
       - 21004:8545/tcp
       - 30303
-    depends_on:
-      bootnode:
-        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.14
@@ -275,17 +264,15 @@ services:
       - NODE_TYPE=rpc
       - ACCOUNT_ADDRESS=c9c913c8c3c1cd416d80a0abf475db2062f161f6
       - ACCOUNT_PASSWORD=  # Set securely, e.g., via secrets
+      - CONTAINER_IP=172.16.239.15
     volumes:
       - rpcnode-data:/opt/geth/data
       - ./network/config/geth:/config
-      - ./network/config/geth/bootnode:/config/keys  # Shared enodes
       - ./network/config/nodes/rpcnode:/opt/geth/data/keystore
+      - ./network/config/nodes/rpcnode:/config/nodekey:ro  # Mount fixed nodekey
     ports:
       - 8545:8545/tcp
       - 8546:8546/tcp
-    depends_on:
-      bootnode:
-        condition: service_healthy
     networks:
       ethnet:
         ipv4_address: 172.16.239.15
