@@ -60,7 +60,7 @@ else
     composeFile=`sed '1q;d' ${LOCK_FILE}`
   else
     echo "Network is not running (${LOCK_FILE} not present)." >&2
-    echo "Run it with ./run.sh first" >&2
+    echo "Run it with ./start.sh first" >&2
     exit 1
   fi
 fi
