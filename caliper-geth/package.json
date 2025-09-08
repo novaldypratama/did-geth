@@ -15,6 +15,7 @@
     "@hyperledger/caliper-ethereum": "^0.6.0",
     "axios": "^1.10.0",
     "bip39": "^3.1.0",
+    "ethers": "^6.15.0",
     "web3": "^4.16.0"
   }
 }
