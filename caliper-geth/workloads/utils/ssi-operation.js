@@ -44,7 +44,7 @@ const SSI_ROLES = {
 
 /**
  * Simplified SSI Operation Base with Caliper Ethereum Integration
- * Leverages @hyperledger/caliper-ethereum for optimal Besu transaction handling
+ * Leverages @hyperledger/caliper-ethereum for optimal Geth transaction handling
  */
 class SimplifiedSSIOperationBase extends WorkloadModuleBase {
   /**
@@ -76,12 +76,6 @@ class SimplifiedSSIOperationBase extends WorkloadModuleBase {
     // Store reference as stateManager for consistency across methods
     this.stateManager = this.ssiState;
 
-    // Add transaction delay configuration if not already present
-    if (!this.ssiConfig.transactionDelayMs) {
-      this.ssiConfig.transactionDelayMs = this.roundArguments.transactionDelayMs || 250;
-      console.log(`⏱️ Setting transaction delay to ${this.ssiConfig.transactionDelayMs}ms`);
-    }
-
     console.log(`🔗 Worker ${this.workerIndex} initialized with account: ${this.fromAddress}`);
   }
 
@@ -110,7 +104,7 @@ class SimplifiedSSIOperationBase extends WorkloadModuleBase {
    */
   initializeSSIConfiguration() {
     // Extract required configuration (simplified for Caliper Ethereum)
-    const requiredSettings = ['gasLimit', 'chainId'];
+    const requiredSettings = ['gethEndpoint', 'chainId'];
 
     requiredSettings.forEach(setting => {
       if (!this.roundArguments.hasOwnProperty(setting)) {
@@ -120,9 +114,8 @@ class SimplifiedSSIOperationBase extends WorkloadModuleBase {
 
     // Store SSI configuration optimized for Caliper Ethereum
     this.ssiConfig = {
-      gasLimit: this.roundArguments.gasLimit || 8000000,
       chainId: this.roundArguments.chainId || 1337,
-      besuEndpoint: this.roundArguments.besuEndpoint,
+      gethEndpoint: this.roundArguments.gethEndpoint,
       contractAddresses: this.roundArguments.contractAddresses || {},
       gasConfig: this.roundArguments.gasConfig || {},
       // Additional Caliper Ethereum specific configurations
@@ -140,13 +133,7 @@ class SimplifiedSSIOperationBase extends WorkloadModuleBase {
     // Initialize nonce tracker
     this.nonceTracker = {};
 
-    // Add debugging information
-    this.logAdapterDebugInfo();
-
-    // Try multiple approaches to get accounts
-    let accountFound = false;
-
-    // Approach 1: Try to use available accounts from network config or adapter
+    // Try to use available accounts from network config or adapter
     const networkAccounts = this.getNetworkAccounts();
 
     if (networkAccounts && networkAccounts.length > 0) {
@@ -154,102 +141,21 @@ class SimplifiedSSIOperationBase extends WorkloadModuleBase {
       const availableAccounts = networkAccounts.length;
       this.clientIdx = this.workerIndex % availableAccounts;
       this.fromAddress = networkAccounts[this.clientIdx].address;
-      accountFound = true;
 
       console.log(`👤 Worker ${this.workerIndex} using network account ${this.clientIdx}: ${this.fromAddress}`);
-    }
-
-    // Approach 2: Try connector's default account
-    if (!accountFound) {
+    } else {
+      // Fallback to connector's default account
       this.fromAddress = this.sutAdapter.defaultAccount || null;
-      if (this.fromAddress) {
-        accountFound = true;
-        console.log(`👤 Worker ${this.workerIndex} using default account: ${this.fromAddress}`);
+
+      if (!this.fromAddress) {
+        throw new Error('No accounts available from network config or connector defaults');
       }
-    }
 
-    // Approach 3: Try to get accounts from sutContext
-    if (!accountFound && this.sutContext) {
-      try {
-        if (this.sutContext.accounts && this.sutContext.accounts.length > 0) {
-          const availableAccounts = this.sutContext.accounts.length;
-          this.clientIdx = this.workerIndex % availableAccounts;
-          this.fromAddress = this.sutContext.accounts[this.clientIdx];
-          accountFound = true;
-          console.log(`👤 Worker ${this.workerIndex} using sutContext account ${this.clientIdx}: ${this.fromAddress}`);
-        }
-      } catch (error) {
-        console.warn(`⚠️ Could not access sutContext accounts: ${error.message}`);
-      }
-    }
-
-    // Approach 4: Try to get from Caliper connector configuration
-    if (!accountFound) {
-      try {
-        const connectorConfig = this.sutAdapter.bcType || this.sutAdapter.config;
-        if (connectorConfig && connectorConfig.accounts) {
-          const accounts = connectorConfig.accounts;
-          if (accounts.length > 0) {
-            this.clientIdx = this.workerIndex % accounts.length;
-            this.fromAddress = accounts[this.clientIdx];
-            accountFound = true;
-            console.log(`👤 Worker ${this.workerIndex} using connector config account ${this.clientIdx}: ${this.fromAddress}`);
-          }
-        }
-      } catch (error) {
-        console.warn(`⚠️ Could not access connector config accounts: ${error.message}`);
-      }
-    }
-
-    // Approach 5: Use a hardcoded fallback account (for development/testing)
-    if (!accountFound) {
-      // Use the RPC node account address from docker-compose.yml as fallback
-      this.fromAddress = '0xc9c913c8c3c1cd416d80a0abf475db2062f161f6';
-      console.log(`👤 Worker ${this.workerIndex} using fallback account: ${this.fromAddress}`);
-      console.warn(`⚠️ Using hardcoded fallback account. Ensure this account exists and is unlocked on the network.`);
-      accountFound = true;
-    }
-
-    if (!accountFound || !this.fromAddress) {
-      throw new Error('No accounts available from any source (network config, connector defaults, sutContext, or fallback)');
-    }
-
-    // Ensure address has proper format
-    if (!this.fromAddress.startsWith('0x')) {
-      this.fromAddress = '0x' + this.fromAddress;
+      console.log(`👤 Worker ${this.workerIndex} using default account: ${this.fromAddress}`);
     }
 
     // Initialize nonce tracker for this account
     this.nonceTracker[this.fromAddress] = 0;
-  }
-
-  /**
-   * Log debug information about the sutAdapter for troubleshooting
-   * @protected
-   */
-  logAdapterDebugInfo() {
-    try {
-      console.log(`🔍 Debug: sutAdapter type: ${typeof this.sutAdapter}`);
-      console.log(`🔍 Debug: sutAdapter keys: ${Object.keys(this.sutAdapter)}`);
-      
-      if (this.sutAdapter.ethereumConfig) {
-        console.log(`🔍 Debug: ethereumConfig keys: ${Object.keys(this.sutAdapter.ethereumConfig)}`);
-        if (this.sutAdapter.ethereumConfig.fromAddress) {
-          console.log(`🔍 Debug: fromAddress found: ${this.sutAdapter.ethereumConfig.fromAddress}`);
-        }
-      }
-
-      if (this.sutContext) {
-        console.log(`🔍 Debug: sutContext type: ${typeof this.sutContext}`);
-        console.log(`🔍 Debug: sutContext keys: ${Object.keys(this.sutContext)}`);
-      }
-
-      if (this.roundArguments) {
-        console.log(`🔍 Debug: roundArguments keys: ${Object.keys(this.roundArguments)}`);
-      }
-    } catch (error) {
-      console.warn(`⚠️ Debug logging failed: ${error.message}`);
-    }
   }
 
   /**
@@ -259,66 +165,19 @@ class SimplifiedSSIOperationBase extends WorkloadModuleBase {
    */
   getNetworkAccounts() {
     try {
-      // Try multiple paths to network accounts with better error handling
-      const possiblePaths = [
-        () => this.sutAdapter.context?.networkConfiguration?.ethereum?.accounts,
-        () => this.sutAdapter.networkConfiguration?.ethereum?.accounts,
-        () => this.sutAdapter.ethereumConfig?.accounts,
-        () => this.sutAdapter.config?.ethereum?.accounts,
-        () => this.sutAdapter.bcType?.accounts,
-        () => this.roundArguments?.accounts,
-        () => this.sutContext?.accounts
-      ];
-
-      for (const getAccounts of possiblePaths) {
-        try {
-          const accounts = getAccounts();
-          if (accounts && Array.isArray(accounts) && accounts.length > 0) {
-            console.log(`📋 Found ${accounts.length} accounts in network configuration`);
-            return accounts;
-          }
-        } catch (pathError) {
-          // Continue to next path
-          continue;
-        }
+      // Try multiple paths to network accounts
+      if (this.sutAdapter.context?.networkConfiguration?.ethereum?.accounts) {
+        return this.sutAdapter.context.networkConfiguration.ethereum.accounts;
       }
 
-      // Try to extract individual account fields from Caliper Ethereum config
-      try {
-        const ethConfig = this.sutAdapter.ethereumConfig || 
-                         this.sutAdapter.networkConfiguration?.ethereum ||
-                         this.sutAdapter.context?.networkConfiguration?.ethereum;
-
-        if (ethConfig) {
-          const accounts = [];
-          
-          // Extract fromAddress if present
-          if (ethConfig.fromAddress) {
-            accounts.push({
-              address: ethConfig.fromAddress,
-              privateKey: ethConfig.fromAddressPrivateKey || null
-            });
-          }
-
-          // Extract contractDeployerAddresses if different from fromAddress
-          if (ethConfig.contractDeployerAddresses && 
-              ethConfig.contractDeployerAddresses !== ethConfig.fromAddress) {
-            accounts.push({
-              address: ethConfig.contractDeployerAddresses,
-              privateKey: ethConfig.contractDeployerAddressPrivateKeys || null
-            });
-          }
-
-          if (accounts.length > 0) {
-            console.log(`📋 Found ${accounts.length} accounts from Caliper Ethereum config fields`);
-            return accounts;
-          }
-        }
-      } catch (configError) {
-        console.warn(`⚠️ Could not extract accounts from Caliper config fields: ${configError.message}`);
+      if (this.sutAdapter.networkConfiguration?.ethereum?.accounts) {
+        return this.sutAdapter.networkConfiguration.ethereum.accounts;
       }
 
-      console.log(`📋 No accounts found in network configuration`);
+      if (this.sutAdapter.ethereumConfig?.accounts) {
+        return this.sutAdapter.ethereumConfig.accounts;
+      }
+
       return null;
     } catch (error) {
       console.warn(`⚠️ Could not access network accounts: ${error.message}`);
@@ -430,11 +289,11 @@ class SimplifiedSSIOperationBase extends WorkloadModuleBase {
 
     // Fallback to reasonable defaults optimized for SSI operations
     const defaultGasLimits = {
-      'assignRole': 110000,
+      'assignRole': 90000,
       'revokeRole': 70000,
-      'createDid': 150000,
+      'createDid': 135000,
       'updateDid': 80000,
-      'issueCredential': 150000,
+      'issueCredential': 130000,
       'updateCredentialStatus': 100000,
       // Read operations (should not be used as they're read-only)
       'getRole': 20000,
@@ -469,17 +328,11 @@ class SimplifiedSSIOperationBase extends WorkloadModuleBase {
 
       console.log('Caliper request gas:', request.gas);
 
-      // Use sutAdapter.sendRequests for optimal Besu interaction
+      // Use sutAdapter.sendRequests for optimal Geth interaction
       result = await this.sutAdapter.sendRequests(request);
 
       const executionTime = Date.now() - startTime;
       console.log(`✅ ${contractName}.${operation} completed in ${executionTime}ms`);
-
-      // Add a delay after successful transaction to prevent network congestion
-      // Only add delay for write operations to avoid slowing down reads
-      if (!READ_ONLY_OPERATIONS.has(operation) && this.stateManager) {
-        await this.stateManager.waitForTransactionDelay(this.ssiConfig.transactionDelayMs || 250);
-      }
 
       return result;
     } catch (error) {
